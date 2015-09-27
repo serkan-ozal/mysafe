@@ -185,4 +185,4 @@ MySafe.dumpAllocatedMemories(myPrintStream);
 6. Demo
 ==============
 
-[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/Demo.java) its demo application.
+[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/Demo.java) is its demo application.
