@@ -62,7 +62,6 @@
    			<groupId>tr.com.serkanozal</groupId>
     		<artifactId>jillegal-agent</artifactId>
     		<version>${jillegal.agent.version}</version>
-			<scope>optional</scope>
 		</dependency>
 		<dependency>
 			<groupId>asm</groupId>
