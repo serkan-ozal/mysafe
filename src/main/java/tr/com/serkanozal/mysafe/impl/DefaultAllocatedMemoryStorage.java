@@ -24,16 +24,9 @@ import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
     private final TreeMap<Long, Long> allocatedMemories;
-    private final AllocatedMemoryStorage unmodifiableAllocatedMemoryStorage;
     
     DefaultAllocatedMemoryStorage() {
         this.allocatedMemories = new TreeMap<Long, Long>();
-        this.unmodifiableAllocatedMemoryStorage = new UnmodifiableDefaultAllocatedMemoryStorage(allocatedMemories);
-    }
-    
-    private DefaultAllocatedMemoryStorage(TreeMap<Long, Long> allocatedMemories) {
-        this.allocatedMemories = allocatedMemories;
-        this.unmodifiableAllocatedMemoryStorage = null;
     }
 
     @Override
@@ -82,30 +75,6 @@ class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
             long size = entry.getValue();
             iterator.onAllocatedMemory(address, size);
         }
-    }
-
-    @Override
-    public AllocatedMemoryStorage getUnmodifiable() {
-        return unmodifiableAllocatedMemoryStorage;
-    }
-    
-    private class UnmodifiableDefaultAllocatedMemoryStorage 
-            extends DefaultAllocatedMemoryStorage {
-        
-        private UnmodifiableDefaultAllocatedMemoryStorage(TreeMap<Long, Long> allocatedMemories) {
-            super(allocatedMemories);
-        }
-        
-        @Override
-        public void put(long address, long size) {
-            throw new UnsupportedOperationException("This is unmodifiable allocated memory storage!");
-        }
-        
-        @Override
-        public long remove(long address) {
-            throw new UnsupportedOperationException("This is unmodifiable allocated memory storage!");
-        }
-        
     }
 
 }

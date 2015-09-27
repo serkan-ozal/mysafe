@@ -81,11 +81,4 @@ public interface AllocatedMemoryStorage {
      */
     void iterate(AllocatedMemoryIterator iterator);
     
-    /**
-     * Gets the unmodifiable version of this {@link AllocatedMemoryStorage}.
-     * 
-     * @return the unmodifiable version of this {@link AllocatedMemoryStorage}
-     */
-    AllocatedMemoryStorage getUnmodifiable();
-    
 }
