@@ -3,6 +3,7 @@ My Unsafe
 
 1. What is MySafe?
 ==============
+
 **MySafe** is a framework (based on [Jillegal-Agent](https://github.com/serkan-ozal/jillegal-agent) for managing memory accesses over `sun.misc.Unsafe`. **MySafe** intercepts (instruments) `sun.misc.Unsafe` calls and keeps records of allocated memories. So it can give the allocated memory informations and detect the invalid memory accesses.
 
 2. Installation
@@ -180,3 +181,8 @@ PrintStream myPrintStream = ...
 // Dump all allocated memories to `myPrintStream`
 MySafe.dumpAllocatedMemories(myPrintStream);
 ```
+
+6. Demo
+==============
+
+[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/Demo.java) its demo application.
