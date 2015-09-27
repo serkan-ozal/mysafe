@@ -3,7 +3,7 @@
   	<modelVersion>4.0.0</modelVersion>
   	<groupId>tr.com.serkanozal</groupId>
   	<artifactId>mysafe</artifactId>
-  	<version>1.0.0-SNAPSHOT</version>
+  	<version>1.0.1-SNAPSHOT</version>
     <name>MySafe</name>
     <url>https://github.com/serkan-ozal/mysafe</url>
     
