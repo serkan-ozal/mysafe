@@ -16,7 +16,9 @@
 package tr.com.serkanozal.mysafe.impl;
 
 import java.io.PrintStream;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.log4j.Logger;
 
@@ -25,7 +27,6 @@ import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.IllegalMemoryAccessListener;
 import tr.com.serkanozal.mysafe.UnsafeListener;
-
 import static tr.com.serkanozal.mysafe.AllocatedMemoryStorage.INVALID;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.READ;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.WRITE;
@@ -37,11 +38,10 @@ public final class UnsafeDelegator {
 
     private static final Logger LOGGER = Logger.getLogger(UnsafeDelegator.class);
     
-    private static final Object MUTEX = new Object();
     private static final AllocatedMemoryStorage ALLOCATED_MEMORY_STORAGE;
     private static final IllegalMemoryAccessListener ILLEGAL_MEMORY_ACCESS_LISTENER;
-    private static UnsafeListener[] listeners = new UnsafeListener[0];
-    private static int listenerIndex;
+    private static Set<UnsafeListener> listeners = 
+            Collections.newSetFromMap(new ConcurrentHashMap<UnsafeListener, Boolean>());
     
     private static volatile boolean safeModeEnabled = !Boolean.getBoolean("mysafe.disableSafeMode");
     
@@ -102,98 +102,92 @@ public final class UnsafeDelegator {
     //////////////////////////////////////////////////////////////////////////
     
     public static long allocateMemory(Unsafe unsafe, long size) {
-        synchronized (MUTEX) {
-            for (UnsafeListener listener : listeners) {
-                listener.beforeAllocateMemory(unsafe, size);
-            }
-            long address = unsafe.allocateMemory(size);
-            ALLOCATED_MEMORY_STORAGE.put(address, size);
-            for (UnsafeListener listener : listeners) {
-                listener.afterAllocateMemory(unsafe, address, size);
-            }
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("Allocated memory at address " + 
-                             String.format("0x%016x", address) + " with size " + size);
-            }     
-            return address; 
+        for (UnsafeListener listener : listeners) {
+            listener.beforeAllocateMemory(unsafe, size);
         }
+        long address = unsafe.allocateMemory(size);
+        ALLOCATED_MEMORY_STORAGE.put(address, size);
+        for (UnsafeListener listener : listeners) {
+            listener.afterAllocateMemory(unsafe, address, size);
+        }
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("Allocated memory at address " + 
+                         String.format("0x%016x", address) + " with size " + size);
+        }     
+        return address; 
     }
     
     public static void freeMemory(Unsafe unsafe, long address) {
-        synchronized (MUTEX) {
+        for (UnsafeListener listener : listeners) {
+            listener.beforeFreeMemory(unsafe, address);
+        }
+        long removedSize = ALLOCATED_MEMORY_STORAGE.remove(address);
+        if (removedSize != INVALID) {
+            unsafe.freeMemory(address);
             for (UnsafeListener listener : listeners) {
-                listener.beforeFreeMemory(unsafe, address);
+                listener.afterFreeMemory(unsafe, address, removedSize, true);
             }
-            long removedSize = ALLOCATED_MEMORY_STORAGE.remove(address);
-            if (removedSize != INVALID) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("Free memory at address " + String.format("0x%016x", address));
+            }    
+        } else {
+            String msg = "Trying to free unallocated (or out of the record) memory at address " + 
+                         String.format("0x%016x", address);
+            if (safeModeEnabled) {
+                for (UnsafeListener listener : listeners) {
+                    listener.afterFreeMemory(unsafe, address, INVALID, false);
+                }
+                if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
+                    ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(address, INVALID, FREE);
+                }
+                LOGGER.error(msg); 
+                throw new IllegalArgumentException(msg);
+            } else {
+                LOGGER.warn(msg);
                 unsafe.freeMemory(address);
                 for (UnsafeListener listener : listeners) {
-                    listener.afterFreeMemory(unsafe, address, removedSize, true);
-                }
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("Free memory at address " + String.format("0x%016x", address));
-                }    
-            } else {
-                String msg = "Trying to free unallocated (or out of the record) memory at address " + 
-                             String.format("0x%016x", address);
-                if (safeModeEnabled) {
-                    for (UnsafeListener listener : listeners) {
-                        listener.afterFreeMemory(unsafe, address, INVALID, false);
-                    }
-                    if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
-                        ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(address, INVALID, FREE);
-                    }
-                    LOGGER.error(msg); 
-                    throw new IllegalArgumentException(msg);
-                } else {
-                    LOGGER.warn(msg);
-                    unsafe.freeMemory(address);
-                    for (UnsafeListener listener : listeners) {
-                        listener.afterFreeMemory(unsafe, address, INVALID, false);
-                    }
+                    listener.afterFreeMemory(unsafe, address, INVALID, false);
                 }
             }
-        }  
+        }
     }
     
     public static long reallocateMemory(Unsafe unsafe, long oldAddress, long newSize) {
-        synchronized (MUTEX) {
-            long oldSize = ALLOCATED_MEMORY_STORAGE.remove(oldAddress);
-            if (oldSize != INVALID) {
+        long oldSize = ALLOCATED_MEMORY_STORAGE.remove(oldAddress);
+        if (oldSize != INVALID) {
+            for (UnsafeListener listener : listeners) {
+                listener.beforeReallocateMemory(unsafe, oldAddress, oldSize);
+            }
+            long newAddress = unsafe.reallocateMemory(oldAddress, newSize);
+            ALLOCATED_MEMORY_STORAGE.put(newAddress, newSize);
+            for (UnsafeListener listener : listeners) {
+                listener.afterReallocateMemory(unsafe, oldAddress, oldSize, newAddress, newSize, true);
+            }
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("Reallocate memory from address " + 
+                             String.format("0x%016x", oldAddress) + " with size of " + oldSize + 
+                             " to address " + String.format("0x%016x", newAddress) + " with size of " + newSize);
+            }  
+            return newAddress;
+        }  else {
+            String msg = "Trying to reallocate unallocated (or out of the record) memory at address " + 
+                         String.format("0x%016x", oldAddress) + " with new size " + newSize;
+            if (safeModeEnabled) {
                 for (UnsafeListener listener : listeners) {
-                    listener.beforeReallocateMemory(unsafe, oldAddress, oldSize);
+                    listener.beforeReallocateMemory(unsafe, oldAddress, INVALID);
                 }
+                if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
+                    ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(oldAddress, INVALID, REALLOCATE);
+                }
+                LOGGER.error(msg); 
+                throw new IllegalArgumentException(msg);
+            } else {
+                LOGGER.warn(msg);
                 long newAddress = unsafe.reallocateMemory(oldAddress, newSize);
-                ALLOCATED_MEMORY_STORAGE.put(newAddress, newSize);
                 for (UnsafeListener listener : listeners) {
-                    listener.afterReallocateMemory(unsafe, oldAddress, oldSize, newAddress, newSize, true);
+                    listener.afterReallocateMemory(unsafe, oldAddress, INVALID, newAddress, newSize, false);
                 }
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("Reallocate memory from address " + 
-                                 String.format("0x%016x", oldAddress) + " with size of " + oldSize + 
-                                 " to address " + String.format("0x%016x", newAddress) + " with size of " + newSize);
-                }  
                 return newAddress;
-            }  else {
-                String msg = "Trying to reallocate unallocated (or out of the record) memory at address " + 
-                             String.format("0x%016x", oldAddress) + " with new size " + newSize;
-                if (safeModeEnabled) {
-                    for (UnsafeListener listener : listeners) {
-                        listener.beforeReallocateMemory(unsafe, oldAddress, INVALID);
-                    }
-                    if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
-                        ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(oldAddress, INVALID, REALLOCATE);
-                    }
-                    LOGGER.error(msg); 
-                    throw new IllegalArgumentException(msg);
-                } else {
-                    LOGGER.warn(msg);
-                    long newAddress = unsafe.reallocateMemory(oldAddress, newSize);
-                    for (UnsafeListener listener : listeners) {
-                        listener.afterReallocateMemory(unsafe, oldAddress, INVALID, newAddress, newSize, false);
-                    }
-                    return newAddress;
-                }
             }
         }
     }
@@ -201,28 +195,24 @@ public final class UnsafeDelegator {
     //////////////////////////////////////////////////////////////////////////
     
     public static void iterateOnAllocatedMemories(AllocatedMemoryIterator iterator) {
-        synchronized (MUTEX) {
-            ALLOCATED_MEMORY_STORAGE.iterate(iterator);
-        }     
+        ALLOCATED_MEMORY_STORAGE.iterate(iterator);     
     }
     
     public static void dumpAllocatedMemories(final PrintStream ps, final Unsafe unsafe) {
-        synchronized (MUTEX) {
-            ALLOCATED_MEMORY_STORAGE.iterate(new AllocatedMemoryIterator() {
-                @Override
-                public void onAllocatedMemory(long address, long size) {
-                    ps.println("Address : " + String.format("0x%016x", address));
-                    ps.println("Size    : " + size);
-                    ps.println("Dump    :");
-                    dump(ps, unsafe, address, size);
-                    ps.println();
-                    ps.print("========================================");
-                    ps.print("========================================");
-                    ps.println();
-                    ps.println();
-                }
-            });
-        }    
+        ALLOCATED_MEMORY_STORAGE.iterate(new AllocatedMemoryIterator() {
+            @Override
+            public void onAllocatedMemory(long address, long size) {
+                ps.println("Address : " + String.format("0x%016x", address));
+                ps.println("Size    : " + size);
+                ps.println("Dump    :");
+                dump(ps, unsafe, address, size);
+                ps.println();
+                ps.print("========================================");
+                ps.print("========================================");
+                ps.println();
+                ps.println();
+            }
+        });   
     }
     
     private static void dump(PrintStream ps, Unsafe unsafe, long address, long size) {
@@ -245,36 +235,11 @@ public final class UnsafeDelegator {
     //////////////////////////////////////////////////////////////////////////
     
     public static void registerUnsafeListener(UnsafeListener listener) {
-        synchronized (MUTEX) {
-            if (listeners.length == listenerIndex) {
-                // Grow
-                int oldCapacity = listeners.length;
-                int newCapacity = Math.max(1, oldCapacity + (oldCapacity >> 1));
-                listeners = Arrays.copyOf(listeners, newCapacity);
-            }
-            listeners[listenerIndex++] = listener;
-        }    
+        listeners.add(listener); 
     }
     
     public static void deregisterUnsafeListener(UnsafeListener listener) {
-        synchronized (MUTEX) {
-            for (int i = 0; i < listenerIndex; i++) {
-                UnsafeListener l = listeners[i];
-                if (l == listener) {
-                    for (int j = i + 1; j < listenerIndex; j++) {
-                        listeners[j - 1] = listeners[j];
-                    }
-                    listeners[listenerIndex - 1] = null;
-                    listenerIndex--;  
-                }
-            }
-            if (listenerIndex + (listenerIndex << 1) < listeners.length) {
-                // Shrink
-                int oldCapacity = listeners.length;
-                int newCapacity = oldCapacity << 1;
-                listeners = Arrays.copyOf(listeners, newCapacity);   
-            }
-        }    
+        listeners.remove(listener);
     }
     
     //////////////////////////////////////////////////////////////////////////

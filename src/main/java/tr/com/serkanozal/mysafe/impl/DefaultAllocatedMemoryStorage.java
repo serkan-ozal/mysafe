@@ -16,17 +16,18 @@
 package tr.com.serkanozal.mysafe.impl;
 
 import java.util.Map;
-import java.util.TreeMap;
+import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 
 class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
-    private final TreeMap<Long, Long> allocatedMemories;
+    private final NavigableMap<Long, Long> allocatedMemories;
     
     DefaultAllocatedMemoryStorage() {
-        this.allocatedMemories = new TreeMap<Long, Long>();
+        this.allocatedMemories = new ConcurrentSkipListMap<Long, Long>();
     }
 
     @Override
