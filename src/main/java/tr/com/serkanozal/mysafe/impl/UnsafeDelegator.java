@@ -108,9 +108,10 @@ public final class UnsafeDelegator {
         }
         
         private void acquireFreeLock() {
+            final int minValue = Integer.MIN_VALUE;
             for (;;) {
                 int currentState = unsafeState;
-                if (currentState <= 0) {
+                if (currentState <= 0 && currentState != minValue) {
                     if (UNSAFE.compareAndSwapInt(this, UNSAFE_STATE_FIELD_OFFSET, currentState, currentState - 1)) {
                         break;
                     }
@@ -119,9 +120,10 @@ public final class UnsafeDelegator {
         }
         
         private void acquireAccessLock() {
+            final int maxValue = Integer.MAX_VALUE;
             for (;;) {
                 int currentState = unsafeState;
-                if (currentState >= 0) {
+                if (currentState >= 0 && currentState != maxValue) {
                     if (UNSAFE.compareAndSwapInt(this, UNSAFE_STATE_FIELD_OFFSET, currentState, currentState + 1)) {
                         break;
                     }
