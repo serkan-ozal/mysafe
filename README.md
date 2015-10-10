@@ -46,6 +46,8 @@ You can change `mysafe.version` to any existing **MySafe** library version.
 
 * **`mysafe.disableSafeMode`:** Disables memory access checkes over `sun.misc.Unsafe`. By this property enabled, every memory accesses over `sun.misc.Unsafe` are checked about if the target memory is in the allocated memory region or not to prevvent segmentation fault. Default value is `false`.
 
+* **`mysafe.disableMXBean`:** Disables JMX support. Default value is `false`.
+
 * **`mysafe.allocatedMemoryStorageImpl`:** Specifies the custom `AllocatedMemoryStorage` implementation which stored the allocated memories. If it is not set, the default (built-in) `AllocatedMemoryStorage` implementation is used.
 
 * **`mysafe.illegalMemoryAccessListenerImpl`:** Specifies the `IllegalMemoryAccessListener` implementation to be notified when illegal memory access occurred.
