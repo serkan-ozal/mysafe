@@ -1,6 +1,7 @@
 package tr.com.serkanozal.mysafe.impl.processor;
 
 import tr.com.serkanozal.jillegal.agent.ClassDataProcessor;
+import tr.com.serkanozal.mysafe.MySafe;
 import tr.com.serkanozal.mysafe.impl.instrument.UnsafeUsageInstrumenter;
 import tr.com.serkanozal.mysafe.impl.instrument.UnsafeUsageInstrumenterFactory;
 
@@ -8,6 +9,10 @@ public class UnsafeProcessor implements ClassDataProcessor {
     
     private final UnsafeUsageInstrumenter unsafeUsageInstrumenter = 
             UnsafeUsageInstrumenterFactory.createUnsafeUsageInstrumenter();
+    
+    static {
+        MySafe.initialize();
+    }
     
     @Override
     public byte[] process(ClassLoader loader, String className, byte[] classData) {

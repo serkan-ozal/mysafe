@@ -20,16 +20,16 @@ import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Logger;
 
 import sun.misc.Unsafe;
-
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.IllegalMemoryAccessListener;
+import tr.com.serkanozal.mysafe.MySafe;
 import tr.com.serkanozal.mysafe.UnsafeListener;
-
 import static tr.com.serkanozal.mysafe.AllocatedMemoryStorage.INVALID;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.READ;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.WRITE;
@@ -46,10 +46,13 @@ public final class UnsafeDelegator {
     private static Set<UnsafeListener> listeners = 
             Collections.newSetFromMap(new ConcurrentHashMap<UnsafeListener, Boolean>());
     private static final UnsafeLock unsafeLock = new UnsafeLock();
+    private static final AtomicLong allocatedMemory = new AtomicLong(0L);
     
     private static volatile boolean safeModeEnabled = !Boolean.getBoolean("mysafe.disableSafeMode");
-    
+
     static {
+        MySafe.initialize();
+        
         String allocatedMemoryStorageImplClassName = System.getProperty("mysafe.allocatedMemoryStorageImpl");
         if (allocatedMemoryStorageImplClassName != null) {
             try {
@@ -167,12 +170,17 @@ public final class UnsafeDelegator {
     
     //////////////////////////////////////////////////////////////////////////
     
+    public static long getAllocatedMemorySize() {
+        return allocatedMemory.get();
+    }
+    
     public static long allocateMemory(Unsafe unsafe, long size) {
         for (UnsafeListener listener : listeners) {
             listener.beforeAllocateMemory(unsafe, size);
         }
         long address = unsafe.allocateMemory(size);
         ALLOCATED_MEMORY_STORAGE.put(address, size);
+        allocatedMemory.addAndGet(size);
         for (UnsafeListener listener : listeners) {
             listener.afterAllocateMemory(unsafe, address, size);
         }
@@ -195,6 +203,7 @@ public final class UnsafeDelegator {
             } finally {
                 unsafeLock.acquireFreeLock();
             }
+            allocatedMemory.addAndGet(-removedSize);
             for (UnsafeListener listener : listeners) {
                 listener.afterFreeMemory(unsafe, address, removedSize, true);
             }
@@ -242,6 +251,7 @@ public final class UnsafeDelegator {
                 unsafeLock.releaseFreeLock();
             }
             ALLOCATED_MEMORY_STORAGE.put(newAddress, newSize);
+            allocatedMemory.addAndGet(newSize - oldSize);
             for (UnsafeListener listener : listeners) {
                 listener.afterReallocateMemory(unsafe, oldAddress, oldSize, newAddress, newSize, true);
             }

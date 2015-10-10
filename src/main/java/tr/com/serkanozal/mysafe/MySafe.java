@@ -16,12 +16,17 @@
 package tr.com.serkanozal.mysafe;
 
 import java.io.PrintStream;
+import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
 
 import sun.misc.Unsafe;
 import tr.com.serkanozal.jillegal.agent.JillegalAgent;
 import tr.com.serkanozal.mysafe.impl.UnsafeDelegator;
+import tr.com.serkanozal.mysafe.impl.mx.MySafeMXBeanImpl;
 import tr.com.serkanozal.mysafe.impl.processor.UnsafeProcessor;
 
 /**
@@ -33,13 +38,18 @@ import tr.com.serkanozal.mysafe.impl.processor.UnsafeProcessor;
 public final class MySafe {
 
     private static final Unsafe UNSAFE;
-    private static AtomicBoolean active = new AtomicBoolean(false);
+    private static final AtomicBoolean active = new AtomicBoolean(false);
+    private static final AtomicBoolean initialized = new AtomicBoolean(false);
+    
+    private static MySafeMXBean mySafeMXBean;
     
     static {
         try {
             Field field = Unsafe.class.getDeclaredField("theUnsafe");
             field.setAccessible(true);
             UNSAFE = (Unsafe) field.get(null);
+            
+            initialize();
         } catch (Throwable t) {
             throw new IllegalStateException(t);
         }
@@ -56,6 +66,34 @@ public final class MySafe {
      */
     public static Unsafe getUnsafe() {
         return UNSAFE;
+    }
+    
+    /**
+     * Initialize <tt>MySafe</tt>.
+     */
+    public static void initialize() {
+        if (initialized.compareAndSet(false, true)) {
+            initializeMXBean();
+        }
+    }
+    
+    private static void initializeMXBean() {
+        if (!Boolean.getBoolean("mysafe.disableMXBean")) {
+            try {
+                final String MXBEAN_REGISTERED_PROPERTY_NAME = "mysafe.mxBeanRegistered";
+                synchronized (System.class) {
+                    if (System.getProperty(MXBEAN_REGISTERED_PROPERTY_NAME) == null) {
+                        MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+                        MySafeMXBean mySafeMXBean = new MySafeMXBeanImpl();
+                        ObjectName mySafeMXBeanObjectName = new ObjectName("tr.com.serkanozal:type=MySafe");
+                        mBeanServer.registerMBean(mySafeMXBean, mySafeMXBeanObjectName);
+                        System.setProperty(MXBEAN_REGISTERED_PROPERTY_NAME, "true");
+                    }    
+                }
+            } catch (Throwable t) {
+                throw new IllegalStateException("Unable to register MySafe MX Bean", t);
+            }
+        }    
     }
     
     /**
@@ -81,6 +119,29 @@ public final class MySafe {
      */
     public static void disableSafeMode() {
         UnsafeDelegator.disableSafeMode();
+    }
+    
+    /**
+     * Gets the allocated memory size in bytes.
+     * 
+     * @return the allocated memory size in bytes
+     */
+    public static long getAllocatedMemorySize() {
+        return UnsafeDelegator.getAllocatedMemorySize();
+    }
+    
+    /**
+     * Gets the {@link MySafeMXBean} instance exported to JMX.
+     * 
+     * @return the {@link MySafeMXBean} instance exported to JMX.
+     * @throws IllegalStateException if JMX support is disabled 
+     *                               by <code>mysafe.disableMXBean</code> property
+     */
+    public static MySafeMXBean getMySafeMXBean() {
+        if (Boolean.getBoolean("mysafe.disableMXBean")) {
+            throw new IllegalStateException("MXBean support is disabled!");
+        }
+        return mySafeMXBean;
     }
     
     /**

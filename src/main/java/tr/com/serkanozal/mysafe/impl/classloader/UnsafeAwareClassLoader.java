@@ -25,6 +25,7 @@ import java.nio.ByteBuffer;
 import java.security.CodeSigner;
 import java.security.cert.Certificate;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.jar.Manifest;
 
 import sun.misc.Resource;
@@ -34,12 +35,16 @@ import tr.com.serkanozal.mysafe.impl.util.ClasspathUtil;
 public class UnsafeAwareClassLoader extends URLClassLoader {
 
     private final UnsafeUsageInstrumenter unsafeUsageInstrumenter;
+    private final AtomicBoolean initialized;
 
     public UnsafeAwareClassLoader(ClassLoader parent) {
         super(findClasspathUrls(parent), null);
         this.unsafeUsageInstrumenter = createUnsafeUsageInstrumenter(parent);
-        URL[] classpathUrls = findClasspathUrls(parent);
         try {
+            Class<?> atomicBooleanClass = parent.loadClass("java.util.concurrent.atomic.AtomicBoolean");
+            initialized = (AtomicBoolean) atomicBooleanClass.newInstance();
+            
+            URL[] classpathUrls = findClasspathUrls(parent);
             Field urlClasspathField = URLClassLoader.class.getDeclaredField("ucp");
             urlClasspathField.setAccessible(true);
             urlClasspathField.set(this, new UnsafeAwareUrlClasspath(classpathUrls, unsafeUsageInstrumenter));
@@ -48,6 +53,18 @@ public class UnsafeAwareClassLoader extends URLClassLoader {
         } catch (Throwable t) {
             throw new IllegalStateException(t);
         }
+    }
+    
+    private void ensureInitialized() {
+        if (initialized.compareAndSet(false, true)) {
+            try {
+                Class<?> mySafeClass = loadClass("tr.com.serkanozal.mysafe.MySafe");
+                Method initMethod = mySafeClass.getMethod("initialize");
+                initMethod.invoke(mySafeClass);
+            } catch (Throwable t) {
+                throw new IllegalStateException(t);
+            } 
+        }    
     }
     
     private UnsafeUsageInstrumenter createUnsafeUsageInstrumenter(ClassLoader parent) {
@@ -64,6 +81,15 @@ public class UnsafeAwareClassLoader extends URLClassLoader {
     private static URL[] findClasspathUrls(ClassLoader classLoader) {
         Set<URL> urls = ClasspathUtil.findClasspathUrls(classLoader);
         return urls.toArray(new URL[0]);
+    }
+    
+    @Override
+    public Class<?> loadClass(String name) throws ClassNotFoundException {
+        if (!"tr/com/serkanozal/mysafe/MySafe".equals(name)) {
+            ensureInitialized();
+        }
+        
+        return super.loadClass(name);
     }
 
     private static class UnsafeAwareUrlClasspath extends sun.misc.URLClassPath {
