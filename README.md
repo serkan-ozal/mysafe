@@ -11,12 +11,13 @@ My Unsafe
 
 In your `pom.xml`, you must add repository and dependency for **MySafe**. 
 You can change `mysafe.version` to any existing **MySafe** library version.
+Latest version of **MySafe** is `1.1`.
 
 ``` xml
 ...
 <properties>
     ...
-    <mysafe.version>1.0</mysafe.version>
+    <mysafe.version>1.1</mysafe.version>
     ...
 </properties>
 ...
@@ -188,3 +189,16 @@ MySafe.dumpAllocatedMemories(myPrintStream);
 ==============
 
 [Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/Demo.java) is its demo application.
+
+7. Fixes & Enhancements
+==============
+Bug fixes and enhancements at each release:
+
+7.1. 1.1
+--------------
+* Introduced `UnsafeMemoryAccessor` for memory access abstraction through `Unsafe`. Also introduced `AlignmentAwareUnsafeMemoryAccessor` to support unaligned memory accesses on platforms which don't support unaligned memory accesses such as **SPARC**.  
+
+8. Roadmap
+==============
+* Ability to specify custom memory allocation, reallocation and free points (methods) instead of `Unsafe`'s `allocate`, `reallocate` and `free` methods. This feature might be useful if the application allocates memory from OS in batch and manages itself by serving it to clients with allocation/free requests. 
+* Ability to monitor stacktraces of memory allocations with minimum jitter and litter. So, user can have hints about the cause of memory leaks in the application code by looking at the stacktraces of non-free allocations. 
