@@ -26,6 +26,7 @@ class AsmUnsafeUsageInstrumenter implements UnsafeUsageInstrumenter {
     @Override
     public byte[] instrument(String className, byte[] classData) {
         if ("tr.com.serkanozal.mysafe.impl.UnsafeDelegator".equals(className)
+                || className.startsWith("tr.com.serkanozal.mysafe.impl.accessor")
                 || "sun.misc.Unsafe".equals(className)) {
             return classData;
         }

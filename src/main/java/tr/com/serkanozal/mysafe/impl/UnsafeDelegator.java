@@ -16,7 +16,6 @@
 package tr.com.serkanozal.mysafe.impl;
 
 import java.io.PrintStream;
-import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +29,8 @@ import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.IllegalMemoryAccessListener;
 import tr.com.serkanozal.mysafe.MySafe;
 import tr.com.serkanozal.mysafe.UnsafeListener;
+import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessor;
+import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessorFactory;
 import static tr.com.serkanozal.mysafe.AllocatedMemoryStorage.INVALID;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.READ;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.WRITE;
@@ -43,28 +44,38 @@ public final class UnsafeDelegator {
 
     private static final AllocatedMemoryStorage ALLOCATED_MEMORY_STORAGE;
     private static final IllegalMemoryAccessListener ILLEGAL_MEMORY_ACCESS_LISTENER;
-    private static Set<UnsafeListener> listeners = 
+    private static final Unsafe DEFAULT_UNSAFE;
+    private static final UnsafeMemoryAccessor UNSAFE_MEMORY_ACCESSOR;
+    private static final UnsafeLock UNSAFE_LOCK;
+    private static Set<UnsafeListener> LISTENERS = 
             Collections.newSetFromMap(new ConcurrentHashMap<UnsafeListener, Boolean>());
-    private static final UnsafeLock unsafeLock = new UnsafeLock();
-    private static final AtomicLong allocatedMemory = new AtomicLong(0L);
+    private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
+    private static final int OBJECT_REFERENCE_SIZE;
     
+    private static volatile boolean registeredListenerExist = false;
     private static volatile boolean safeModeEnabled = !Boolean.getBoolean("mysafe.disableSafeMode");
 
     static {
         MySafe.initialize();
         
-        String allocatedMemoryStorageImplClassName = System.getProperty("mysafe.allocatedMemoryStorageImpl");
-        if (allocatedMemoryStorageImplClassName != null) {
+        DEFAULT_UNSAFE = MySafe.getUnsafe(); 
+        
+        UNSAFE_MEMORY_ACCESSOR = UnsafeMemoryAccessorFactory.createUnsafeMemoryAccessor(DEFAULT_UNSAFE);
+        UNSAFE_LOCK = new UnsafeLock(DEFAULT_UNSAFE);
+        OBJECT_REFERENCE_SIZE = DEFAULT_UNSAFE.arrayIndexScale(Object[].class);
+        
+        String ALLOCATED_MEMORYStorageImplClassName = System.getProperty("mysafe.ALLOCATED_MEMORYStorageImpl");
+        if (ALLOCATED_MEMORYStorageImplClassName != null) {
             try {
                 @SuppressWarnings("unchecked")
-                Class<? extends AllocatedMemoryStorage> allocatedMemoryStorageImplClass = 
+                Class<? extends AllocatedMemoryStorage> ALLOCATED_MEMORYStorageImplClass = 
                         (Class<? extends AllocatedMemoryStorage>) ClassLoader.getSystemClassLoader().
-                            loadClass(allocatedMemoryStorageImplClassName);
-                ALLOCATED_MEMORY_STORAGE = allocatedMemoryStorageImplClass.newInstance();
+                            loadClass(ALLOCATED_MEMORYStorageImplClassName);
+                ALLOCATED_MEMORY_STORAGE = ALLOCATED_MEMORYStorageImplClass.newInstance();
             } catch (Exception e) {
                 throw new IllegalStateException(
                         "Couldn't create instance of custom 'AllocatedMemoryStorage' implementation: " + 
-                        allocatedMemoryStorageImplClassName, e);
+                        ALLOCATED_MEMORYStorageImplClassName, e);
             }
         } else {
             ALLOCATED_MEMORY_STORAGE = new DefaultAllocatedMemoryStorage();
@@ -91,19 +102,17 @@ public final class UnsafeDelegator {
     private UnsafeDelegator() {
         throw new UnsupportedOperationException("Not avaiable for instantiation!");
     }
-    
+
     private static class UnsafeLock {
         
-        private static final Unsafe UNSAFE;
-        private static final long UNSAFE_STATE_FIELD_OFFSET;
+        private final Unsafe UNSAFE;
+        private final long UNSAFE_STATE_FIELD_OFFSET;
         
         private volatile int unsafeState = 0;
 
-        static {
+        private UnsafeLock(Unsafe unsafe) {
             try {
-                Field field = Unsafe.class.getDeclaredField("theUnsafe");
-                field.setAccessible(true);
-                UNSAFE = (Unsafe) field.get(null);
+                UNSAFE = unsafe;
                 UNSAFE_STATE_FIELD_OFFSET = UNSAFE.objectFieldOffset(UnsafeLock.class.getDeclaredField("unsafeState"));
             } catch (Throwable t) {
                 throw new IllegalStateException(t);
@@ -171,19 +180,23 @@ public final class UnsafeDelegator {
     //////////////////////////////////////////////////////////////////////////
     
     public static long getAllocatedMemorySize() {
-        return allocatedMemory.get();
+        return ALLOCATED_MEMORY.get();
     }
     
     public static long allocateMemory(Unsafe unsafe, long size) {
-        for (UnsafeListener listener : listeners) {
-            listener.beforeAllocateMemory(unsafe, size);
-        }
+        if (registeredListenerExist) {
+            for (UnsafeListener listener : LISTENERS) {
+                listener.beforeAllocateMemory(unsafe, size);
+            }
+        }    
         long address = unsafe.allocateMemory(size);
         ALLOCATED_MEMORY_STORAGE.put(address, size);
-        allocatedMemory.addAndGet(size);
-        for (UnsafeListener listener : listeners) {
-            listener.afterAllocateMemory(unsafe, address, size);
-        }
+        ALLOCATED_MEMORY.addAndGet(size);
+        if (registeredListenerExist) {
+            for (UnsafeListener listener : LISTENERS) {
+                listener.afterAllocateMemory(unsafe, address, size);
+            }
+        }    
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug("Allocated memory at address " + 
                          String.format("0x%016x", address) + " with size " + size);
@@ -192,21 +205,29 @@ public final class UnsafeDelegator {
     }
     
     public static void freeMemory(Unsafe unsafe, long address) {
-        for (UnsafeListener listener : listeners) {
-            listener.beforeFreeMemory(unsafe, address);
-        }
+        if (registeredListenerExist) {
+            for (UnsafeListener listener : LISTENERS) {
+                listener.beforeFreeMemory(unsafe, address);
+            }
+        }    
         long removedSize = ALLOCATED_MEMORY_STORAGE.remove(address);
         if (removedSize != INVALID) {
-            unsafeLock.acquireFreeLock();
+            if (safeModeEnabled) {
+                UNSAFE_LOCK.acquireFreeLock();
+            }    
             try {
                 unsafe.freeMemory(address);
             } finally {
-                unsafeLock.acquireFreeLock();
+                if (safeModeEnabled) {
+                    UNSAFE_LOCK.acquireFreeLock();
+                }     
             }
-            allocatedMemory.addAndGet(-removedSize);
-            for (UnsafeListener listener : listeners) {
-                listener.afterFreeMemory(unsafe, address, removedSize, true);
-            }
+            ALLOCATED_MEMORY.addAndGet(-removedSize);
+            if (registeredListenerExist) {
+                for (UnsafeListener listener : LISTENERS) {
+                    listener.afterFreeMemory(unsafe, address, removedSize, true);
+                }
+            }    
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("Free memory at address " + String.format("0x%016x", address));
             }    
@@ -214,9 +235,11 @@ public final class UnsafeDelegator {
             String msg = "Trying to free unallocated (or out of the record) memory at address " + 
                          String.format("0x%016x", address);
             if (safeModeEnabled) {
-                for (UnsafeListener listener : listeners) {
-                    listener.afterFreeMemory(unsafe, address, INVALID, false);
-                }
+                if (registeredListenerExist) {
+                    for (UnsafeListener listener : LISTENERS) {
+                        listener.afterFreeMemory(unsafe, address, INVALID, false);
+                    }
+                }    
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(address, INVALID, FREE);
                 }
@@ -224,15 +247,21 @@ public final class UnsafeDelegator {
                 throw new IllegalArgumentException(msg);
             } else {
                 LOGGER.warn(msg);
-                unsafeLock.acquireFreeLock();
+                if (safeModeEnabled) {
+                    UNSAFE_LOCK.acquireFreeLock();
+                }    
                 try {
                     unsafe.freeMemory(address);
                 } finally {
-                    unsafeLock.acquireFreeLock();
+                    if (safeModeEnabled) {
+                        UNSAFE_LOCK.acquireFreeLock();
+                    }    
                 }
-                for (UnsafeListener listener : listeners) {
-                    listener.afterFreeMemory(unsafe, address, INVALID, false);
-                }
+                if (registeredListenerExist) {
+                    for (UnsafeListener listener : LISTENERS) {
+                        listener.afterFreeMemory(unsafe, address, INVALID, false);
+                    }
+                }    
             }
         }
     }
@@ -240,21 +269,29 @@ public final class UnsafeDelegator {
     public static long reallocateMemory(Unsafe unsafe, long oldAddress, long newSize) {
         long oldSize = ALLOCATED_MEMORY_STORAGE.remove(oldAddress);
         if (oldSize != INVALID) {
-            for (UnsafeListener listener : listeners) {
-                listener.beforeReallocateMemory(unsafe, oldAddress, oldSize);
-            }
+            if (registeredListenerExist) {
+                for (UnsafeListener listener : LISTENERS) {
+                    listener.beforeReallocateMemory(unsafe, oldAddress, oldSize);
+                }
+            }    
             long newAddress;
-            unsafeLock.acquireFreeLock();
+            if (safeModeEnabled) {
+                UNSAFE_LOCK.acquireFreeLock();
+            }    
             try {
                 newAddress = unsafe.reallocateMemory(oldAddress, newSize);
             } finally {
-                unsafeLock.releaseFreeLock();
+                if (safeModeEnabled) {
+                    UNSAFE_LOCK.releaseFreeLock();
+                }    
             }
             ALLOCATED_MEMORY_STORAGE.put(newAddress, newSize);
-            allocatedMemory.addAndGet(newSize - oldSize);
-            for (UnsafeListener listener : listeners) {
-                listener.afterReallocateMemory(unsafe, oldAddress, oldSize, newAddress, newSize, true);
-            }
+            ALLOCATED_MEMORY.addAndGet(newSize - oldSize);
+            if (registeredListenerExist) {
+                for (UnsafeListener listener : LISTENERS) {
+                    listener.afterReallocateMemory(unsafe, oldAddress, oldSize, newAddress, newSize, true);
+                }
+            }    
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("Reallocate memory from address " + 
                              String.format("0x%016x", oldAddress) + " with size of " + oldSize + 
@@ -265,9 +302,11 @@ public final class UnsafeDelegator {
             String msg = "Trying to reallocate unallocated (or out of the record) memory at address " + 
                          String.format("0x%016x", oldAddress) + " with new size " + newSize;
             if (safeModeEnabled) {
-                for (UnsafeListener listener : listeners) {
-                    listener.beforeReallocateMemory(unsafe, oldAddress, INVALID);
-                }
+                if (registeredListenerExist) {
+                    for (UnsafeListener listener : LISTENERS) {
+                        listener.beforeReallocateMemory(unsafe, oldAddress, INVALID);
+                    }
+                }    
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(oldAddress, INVALID, REALLOCATE);
                 }
@@ -276,15 +315,21 @@ public final class UnsafeDelegator {
             } else {
                 LOGGER.warn(msg);
                 long newAddress;
-                unsafeLock.acquireFreeLock();
+                if (safeModeEnabled) {
+                    UNSAFE_LOCK.acquireFreeLock();
+                }    
                 try {
                     newAddress = unsafe.reallocateMemory(oldAddress, newSize);
                 } finally {
-                    unsafeLock.releaseFreeLock();
+                    if (safeModeEnabled) {
+                        UNSAFE_LOCK.releaseFreeLock();
+                    }    
                 }
-                for (UnsafeListener listener : listeners) {
-                    listener.afterReallocateMemory(unsafe, oldAddress, INVALID, newAddress, newSize, false);
-                }
+                if (registeredListenerExist) {
+                    for (UnsafeListener listener : LISTENERS) {
+                        listener.afterReallocateMemory(unsafe, oldAddress, INVALID, newAddress, newSize, false);
+                    }
+                }    
                 return newAddress;
             }
         }
@@ -332,12 +377,14 @@ public final class UnsafeDelegator {
     
     //////////////////////////////////////////////////////////////////////////
     
-    public static void registerUnsafeListener(UnsafeListener listener) {
-        listeners.add(listener); 
+    public static synchronized void registerUnsafeListener(UnsafeListener listener) {
+        LISTENERS.add(listener);
+        registeredListenerExist = true;
     }
     
-    public static void deregisterUnsafeListener(UnsafeListener listener) {
-        listeners.remove(listener);
+    public static synchronized void deregisterUnsafeListener(UnsafeListener listener) {
+        LISTENERS.remove(listener);
+        registeredListenerExist = !LISTENERS.isEmpty();
     }
     
     //////////////////////////////////////////////////////////////////////////
@@ -345,9 +392,9 @@ public final class UnsafeDelegator {
     private static void checkMemoryAccess(long address, long size, 
             IllegalMemoryAccessListener.MemoryAccessType memoryAccessType) {
         if (safeModeEnabled) {
-            unsafeLock.acquireAccessLock();
+            UNSAFE_LOCK.acquireAccessLock();
             if (!ALLOCATED_MEMORY_STORAGE.contains(address, size)) {
-                unsafeLock.releaseAccessLock();
+                UNSAFE_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             address, size,  memoryAccessType);
@@ -361,9 +408,9 @@ public final class UnsafeDelegator {
     
     private static void checkMemoryAccess(long sourceAddress, long destinationAddress, long size) {
         if (safeModeEnabled) {
-            unsafeLock.acquireAccessLock();
+            UNSAFE_LOCK.acquireAccessLock();
             if (!ALLOCATED_MEMORY_STORAGE.contains(sourceAddress, size)) {
-                unsafeLock.releaseAccessLock();
+                UNSAFE_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             sourceAddress, size,  READ);
@@ -374,7 +421,7 @@ public final class UnsafeDelegator {
                 
             }
             if (!ALLOCATED_MEMORY_STORAGE.contains(destinationAddress, size)) {
-                unsafeLock.releaseAccessLock();
+                UNSAFE_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             destinationAddress, size,  WRITE);
@@ -388,16 +435,16 @@ public final class UnsafeDelegator {
     
     private static void onReturnMemoryAccess() {
         if (safeModeEnabled) {
-            unsafeLock.releaseAccessLock();
+            UNSAFE_LOCK.releaseAccessLock();
         }    
     }
     
     private static void checkMemoryAccess(Object o, long offset, long size,
             IllegalMemoryAccessListener.MemoryAccessType memoryAccessType) {
         if (safeModeEnabled && o == null) {
-            unsafeLock.acquireAccessLock();
+            UNSAFE_LOCK.acquireAccessLock();
             if (!ALLOCATED_MEMORY_STORAGE.contains(offset, size)) {
-                unsafeLock.releaseAccessLock();
+                UNSAFE_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             offset, size, memoryAccessType);
@@ -412,9 +459,9 @@ public final class UnsafeDelegator {
     private static void checkMemoryAccess(Object sourceObject, long sourceOffset, 
             Object destinationObject, long destinationOffset, long size) {
         if (safeModeEnabled && sourceObject == null && destinationObject == null) {
-            unsafeLock.acquireAccessLock();
+            UNSAFE_LOCK.acquireAccessLock();
             if (!ALLOCATED_MEMORY_STORAGE.contains(sourceOffset, size)) {
-                unsafeLock.releaseAccessLock();
+                UNSAFE_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             sourceOffset, size, READ);
@@ -424,7 +471,7 @@ public final class UnsafeDelegator {
                             "at address " + String.format("0x%016x", sourceOffset) + " with size " + size);
             }
             if (!ALLOCATED_MEMORY_STORAGE.contains(destinationOffset, size)) {
-                unsafeLock.releaseAccessLock();
+                UNSAFE_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             destinationOffset, size, WRITE);
@@ -438,7 +485,7 @@ public final class UnsafeDelegator {
     
     private static void onReturnMemoryAccess(Object o) {
         if (safeModeEnabled && o == null) {
-            unsafeLock.releaseAccessLock();
+            UNSAFE_LOCK.releaseAccessLock();
         }
     }
 
@@ -448,7 +495,7 @@ public final class UnsafeDelegator {
     public static boolean getBoolean(Unsafe unsafe, Object o, int offset) {
         checkMemoryAccess(o, offset, 1, READ);
         try {
-            return unsafe.getBoolean(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getBoolean(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -458,7 +505,7 @@ public final class UnsafeDelegator {
     public static void putBoolean(Unsafe unsafe, Object o, int offset, boolean x) {
         checkMemoryAccess(o, offset, 1, WRITE);
         try {
-            unsafe.putBoolean(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putBoolean(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -468,7 +515,7 @@ public final class UnsafeDelegator {
     public static byte getByte(Unsafe unsafe, Object o, int offset) {
         checkMemoryAccess(o, offset, 1, READ);
         try {
-            return unsafe.getByte(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getByte(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -478,7 +525,7 @@ public final class UnsafeDelegator {
     public static void putByte(Unsafe unsafe, Object o, int offset, byte x) {
         checkMemoryAccess(o, offset, 1, WRITE);
         try {
-            unsafe.putByte(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putByte(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -488,7 +535,7 @@ public final class UnsafeDelegator {
     public static char getChar(Unsafe unsafe, Object o, int offset) {
         checkMemoryAccess(o, offset, 2, READ);
         try {
-            return unsafe.getChar(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getChar(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -498,7 +545,7 @@ public final class UnsafeDelegator {
     public static void putChar(Unsafe unsafe, Object o, int offset, char x) {
         checkMemoryAccess(o, offset, 2, WRITE);
         try {
-            unsafe.putChar(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putChar(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -508,7 +555,7 @@ public final class UnsafeDelegator {
     public static short getShort(Unsafe unsafe, Object o, int offset) {
         checkMemoryAccess(o, offset, 2, READ);
         try {
-            return unsafe.getShort(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getShort(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -518,7 +565,7 @@ public final class UnsafeDelegator {
     public static void putShort(Unsafe unsafe, Object o, int offset, short x) {
         checkMemoryAccess(o, offset, 2, WRITE);
         try {
-            unsafe.putShort(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putShort(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -528,7 +575,7 @@ public final class UnsafeDelegator {
     public static int getInt(Unsafe unsafe, Object o, int offset) {
         checkMemoryAccess(o, offset, 4, READ);
         try {
-            return unsafe.getInt(o, (long)offset);
+            return UNSAFE_MEMORY_ACCESSOR.getInt(unsafe, o, (long)offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -538,7 +585,7 @@ public final class UnsafeDelegator {
     public static void putInt(Unsafe unsafe, Object o, int offset, int x) {
         checkMemoryAccess(o, offset, 4, WRITE);
         try {
-            unsafe.putInt(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putInt(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -548,7 +595,7 @@ public final class UnsafeDelegator {
     public static float getFloat(Unsafe unsafe, Object o, int offset) {
         checkMemoryAccess(o, offset, 4, READ);
         try {
-            return unsafe.getFloat(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getFloat(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -558,7 +605,7 @@ public final class UnsafeDelegator {
     public static void putFloat(Unsafe unsafe, Object o, int offset, float x) {
         checkMemoryAccess(o, offset, 4, WRITE);
         try {
-            unsafe.putFloat(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putFloat(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -568,7 +615,7 @@ public final class UnsafeDelegator {
     public static long getLong(Unsafe unsafe, Object o, int offset) {
         checkMemoryAccess(o, offset, 8, READ);
         try {
-            return unsafe.getLong(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getLong(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -578,7 +625,7 @@ public final class UnsafeDelegator {
     public static void putLong(Unsafe unsafe, Object o, int offset, long x) {
         checkMemoryAccess(o, offset, 8, WRITE);
         try {
-            unsafe.putLong(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putLong(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -588,7 +635,7 @@ public final class UnsafeDelegator {
     public static double getDouble(Unsafe unsafe, Object o, int offset) {
         checkMemoryAccess(o, offset, 8, READ);
         try {
-            return unsafe.getDouble(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getDouble(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -598,7 +645,7 @@ public final class UnsafeDelegator {
     public static void putDouble(Unsafe unsafe, Object o, int offset, double x) {
         checkMemoryAccess(o, offset, 8, WRITE);
         try {
-            unsafe.putDouble(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putDouble(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -606,10 +653,9 @@ public final class UnsafeDelegator {
 
     @Deprecated
     public static Object getObject(Unsafe unsafe, Object o, int offset) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(o, offset, unsafe.addressSize(), READ);
+        checkMemoryAccess(o, offset, OBJECT_REFERENCE_SIZE, READ);
         try {
-            return unsafe.getObject(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getObject(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -617,10 +663,9 @@ public final class UnsafeDelegator {
 
     @Deprecated
     public static void putObject(Unsafe unsafe, Object o, int offset, Object x) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(o, offset, unsafe.addressSize(), WRITE);
+        checkMemoryAccess(o, offset, OBJECT_REFERENCE_SIZE, WRITE);
         try {
-            unsafe.putObject(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putObject(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -631,7 +676,7 @@ public final class UnsafeDelegator {
     public static boolean getBoolean(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 1, READ);
         try {
-            return unsafe.getBoolean(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getBoolean(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -640,7 +685,7 @@ public final class UnsafeDelegator {
     public static void putBoolean(Unsafe unsafe, Object o, long offset, boolean x) {
         checkMemoryAccess(o, offset, 1, WRITE);
         try {
-            unsafe.putBoolean(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putBoolean(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -649,7 +694,7 @@ public final class UnsafeDelegator {
     public static byte getByte(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 1, READ);
         try {
-            return unsafe.getByte(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getByte(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -658,7 +703,7 @@ public final class UnsafeDelegator {
     public static void putByte(Unsafe unsafe, Object o, long offset, byte x) {
         checkMemoryAccess(o, offset, 1, WRITE);
         try {
-            unsafe.putByte(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putByte(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -667,7 +712,7 @@ public final class UnsafeDelegator {
     public static char getChar(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 2, READ);
         try {
-            return unsafe.getChar(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getChar(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -676,7 +721,7 @@ public final class UnsafeDelegator {
     public static void putChar(Unsafe unsafe, Object o, long offset, char x) {
         checkMemoryAccess(o, offset, 2, WRITE);
         try {
-            unsafe.putChar(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putChar(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -685,7 +730,7 @@ public final class UnsafeDelegator {
     public static short getShort(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 2, READ);
         try {
-            return unsafe.getShort(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getShort(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -694,7 +739,7 @@ public final class UnsafeDelegator {
     public static void putShort(Unsafe unsafe, Object o, long offset, short x) {
         checkMemoryAccess(o, offset, 2, WRITE);
         try {
-            unsafe.putShort(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putShort(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -703,7 +748,7 @@ public final class UnsafeDelegator {
     public static int getInt(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 4, READ);
         try {
-            return unsafe.getInt(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getInt(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -712,7 +757,7 @@ public final class UnsafeDelegator {
     public static void putInt(Unsafe unsafe, Object o, long offset, int x) {
         checkMemoryAccess(o, offset, 4, WRITE);
         try {
-            unsafe.putInt(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putInt(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -721,7 +766,7 @@ public final class UnsafeDelegator {
     public static float getFloat(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 4, READ);
         try {
-            return unsafe.getFloat(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getFloat(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -730,7 +775,7 @@ public final class UnsafeDelegator {
     public static void putFloat(Unsafe unsafe, Object o, long offset, float x) {
         checkMemoryAccess(o, offset, 4, WRITE);
         try {
-            unsafe.putFloat(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putFloat(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -739,7 +784,7 @@ public final class UnsafeDelegator {
     public static long getLong(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 8, READ);
         try {
-            return unsafe.getLong(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getLong(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -748,7 +793,7 @@ public final class UnsafeDelegator {
     public static void putLong(Unsafe unsafe, Object o, long offset, long x) {
         checkMemoryAccess(o, offset, 8, WRITE);
         try {
-            unsafe.putLong(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putLong(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -757,7 +802,7 @@ public final class UnsafeDelegator {
     public static double getDouble(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 8, READ);
         try {
-            return unsafe.getDouble(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getDouble(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -766,27 +811,25 @@ public final class UnsafeDelegator {
     public static void putDouble(Unsafe unsafe, Object o, long offset, double x) {
         checkMemoryAccess(o, offset, 8, WRITE);
         try {
-            unsafe.putDouble(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putDouble(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
     }
     
     public static Object getObject(Unsafe unsafe, Object o, long offset) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(o, offset, unsafe.addressSize(), READ);
+        checkMemoryAccess(o, offset, OBJECT_REFERENCE_SIZE, READ);
         try {
-            return unsafe.getObject(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getObject(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
     }
     
     public static void putObject(Unsafe unsafe, Object o, long offset, Object x) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(o, offset, unsafe.addressSize(), WRITE);
+        checkMemoryAccess(o, offset, OBJECT_REFERENCE_SIZE, WRITE);
         try {
-            unsafe.putObject(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putObject(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -797,7 +840,7 @@ public final class UnsafeDelegator {
     public static boolean getBooleanVolatile(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 1, READ);
         try {
-            return unsafe.getBooleanVolatile(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getBooleanVolatile(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -806,7 +849,7 @@ public final class UnsafeDelegator {
     public static void putBooleanVolatile(Unsafe unsafe, Object o, long offset, boolean x) {
         checkMemoryAccess(o, offset, 1, WRITE);
         try {
-            unsafe.putBooleanVolatile(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putBooleanVolatile(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -815,7 +858,7 @@ public final class UnsafeDelegator {
     public static byte getByteVolatile(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 1, READ);
         try {
-            return unsafe.getByteVolatile(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getByteVolatile(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -824,7 +867,7 @@ public final class UnsafeDelegator {
     public static void putByteVolatile(Unsafe unsafe, Object o, long offset, byte x) {
         checkMemoryAccess(o, offset, 1, WRITE);
         try {
-            unsafe.putByteVolatile(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putByteVolatile(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -833,7 +876,7 @@ public final class UnsafeDelegator {
     public static char getCharVolatile(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 2, READ);
         try {
-            return unsafe.getCharVolatile(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getCharVolatile(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -842,7 +885,7 @@ public final class UnsafeDelegator {
     public static void putCharVolatile(Unsafe unsafe, Object o, long offset, char x) {
         checkMemoryAccess(o, offset, 2, WRITE);
         try {
-            unsafe.putCharVolatile(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putCharVolatile(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -851,7 +894,7 @@ public final class UnsafeDelegator {
     public static short getShortVolatile(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 2, READ);
         try {
-            return unsafe.getShortVolatile(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getShortVolatile(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -860,7 +903,7 @@ public final class UnsafeDelegator {
     public static void putShortVolatile(Unsafe unsafe, Object o, long offset, short x) {
         checkMemoryAccess(o, offset, 2, WRITE);
         try {
-            unsafe.putShortVolatile(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putShortVolatile(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -869,7 +912,7 @@ public final class UnsafeDelegator {
     public static int getIntVolatile(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 4, READ);
         try {
-            return unsafe.getIntVolatile(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getIntVolatile(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -878,7 +921,7 @@ public final class UnsafeDelegator {
     public static void putIntVolatile(Unsafe unsafe, Object o, long offset, int x) {
         checkMemoryAccess(o, offset, 4, WRITE);
         try {
-            unsafe.putIntVolatile(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putIntVolatile(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -887,7 +930,7 @@ public final class UnsafeDelegator {
     public static float getFloatVolatile(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 4, READ);
         try {
-            return unsafe.getFloatVolatile(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getFloatVolatile(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -896,7 +939,7 @@ public final class UnsafeDelegator {
     public static void putFloatVolatile(Unsafe unsafe, Object o, long offset, float x) {
         checkMemoryAccess(o, offset, 4, WRITE);
         try {
-            unsafe.putFloatVolatile(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putFloatVolatile(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -905,7 +948,7 @@ public final class UnsafeDelegator {
     public static long getLongVolatile(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 8, READ);
         try {
-            return unsafe.getLongVolatile(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getLongVolatile(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -914,7 +957,7 @@ public final class UnsafeDelegator {
     public static void putLongVolatile(Unsafe unsafe, Object o, long offset, long x) {
         checkMemoryAccess(o, offset, 8, WRITE);
         try {
-            unsafe.putLongVolatile(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putLongVolatile(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -923,7 +966,7 @@ public final class UnsafeDelegator {
     public static double getDoubleVolatile(Unsafe unsafe, Object o, long offset) {
         checkMemoryAccess(o, offset, 8, READ);
         try {
-            return unsafe.getDoubleVolatile(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getDoubleVolatile(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -932,27 +975,25 @@ public final class UnsafeDelegator {
     public static void putDoubleVolatile(Unsafe unsafe, Object o, long offset, double x) {
         checkMemoryAccess(o, offset, 8, WRITE);
         try {
-            unsafe.putDoubleVolatile(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putDoubleVolatile(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
     }
     
     public static Object getObjectVolatile(Unsafe unsafe, Object o, long offset) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(o, offset, unsafe.addressSize(), READ);
+        checkMemoryAccess(o, offset, OBJECT_REFERENCE_SIZE, READ);
         try {
-            return unsafe.getObjectVolatile(o, offset);
+            return UNSAFE_MEMORY_ACCESSOR.getObjectVolatile(unsafe, o, offset);
         } finally {
             onReturnMemoryAccess(o);
         }
     }
     
     public static void putObjectVolatile(Unsafe unsafe, Object o, long offset, Object x) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(o, offset, unsafe.addressSize(), WRITE);
+        checkMemoryAccess(o, offset, OBJECT_REFERENCE_SIZE, WRITE);
         try {
-            unsafe.putObjectVolatile(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putObjectVolatile(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -963,7 +1004,7 @@ public final class UnsafeDelegator {
     public static boolean getBoolean(Unsafe unsafe, long address) {
         checkMemoryAccess(address, 1, READ);
         try {
-            return unsafe.getByte(address) == 0 ? false : true;
+            return UNSAFE_MEMORY_ACCESSOR.getByte(unsafe, address) == 0 ? false : true;
         } finally {
             onReturnMemoryAccess();
         }
@@ -972,7 +1013,7 @@ public final class UnsafeDelegator {
     public static void putBoolean(Unsafe unsafe, long address, boolean x) {
         checkMemoryAccess(address, 1, WRITE);
         try {
-            unsafe.putByte(address, x ? (byte) 0x01 : (byte) 0x00);
+            UNSAFE_MEMORY_ACCESSOR.putByte(unsafe, address, x ? (byte) 0x01 : (byte) 0x00);
         } finally {
             onReturnMemoryAccess();
         }
@@ -981,7 +1022,7 @@ public final class UnsafeDelegator {
     public static byte getByte(Unsafe unsafe, long address) {
         checkMemoryAccess(address, 1, READ);
         try {
-            return unsafe.getByte(address);
+            return UNSAFE_MEMORY_ACCESSOR.getByte(unsafe, address);
         } finally {
             onReturnMemoryAccess();
         }
@@ -990,7 +1031,7 @@ public final class UnsafeDelegator {
     public static void putByte(Unsafe unsafe, long address, byte x) {
         checkMemoryAccess(address, 1, WRITE);
         try {
-            unsafe.putByte(address, x);
+            UNSAFE_MEMORY_ACCESSOR.putByte(unsafe, address, x);
         } finally {
             onReturnMemoryAccess();
         }
@@ -999,7 +1040,7 @@ public final class UnsafeDelegator {
     public static char getChar(Unsafe unsafe, long address) {
         checkMemoryAccess(address, 2, READ);
         try {
-            return unsafe.getChar(address);
+            return UNSAFE_MEMORY_ACCESSOR.getChar(unsafe, address);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1008,7 +1049,7 @@ public final class UnsafeDelegator {
     public static void putChar(Unsafe unsafe, long address, char x) {
         checkMemoryAccess(address, 2, WRITE);
         try {
-            unsafe.putChar(address, x);
+            UNSAFE_MEMORY_ACCESSOR.putChar(unsafe, address, x);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1017,7 +1058,7 @@ public final class UnsafeDelegator {
     public static short getShort(Unsafe unsafe, long address) {
         checkMemoryAccess(address, 2, READ);
         try {
-            return unsafe.getShort(address);
+            return UNSAFE_MEMORY_ACCESSOR.getShort(unsafe, address);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1026,7 +1067,7 @@ public final class UnsafeDelegator {
     public static void putShort(Unsafe unsafe, long address, short x) {
         checkMemoryAccess(address, 2, WRITE);
         try {
-            unsafe.putShort(address, x);
+            UNSAFE_MEMORY_ACCESSOR.putShort(unsafe, address, x);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1035,7 +1076,7 @@ public final class UnsafeDelegator {
     public static int getInt(Unsafe unsafe, long address) {
         checkMemoryAccess(address, 4, READ);
         try {
-            return unsafe.getInt(address);
+            return UNSAFE_MEMORY_ACCESSOR.getInt(unsafe, address);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1044,7 +1085,7 @@ public final class UnsafeDelegator {
     public static void putInt(Unsafe unsafe, long address, int x) {
         checkMemoryAccess(address, 4, WRITE);
         try {
-            unsafe.putInt(address, x);
+            UNSAFE_MEMORY_ACCESSOR.putInt(unsafe, address, x);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1053,7 +1094,7 @@ public final class UnsafeDelegator {
     public static float getFloat(Unsafe unsafe, long address) {
         checkMemoryAccess(address, 4, READ);
         try {
-            return unsafe.getFloat(address);
+            return UNSAFE_MEMORY_ACCESSOR.getFloat(unsafe, address);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1062,7 +1103,7 @@ public final class UnsafeDelegator {
     public static void putFloat(Unsafe unsafe, long address, float x) {
         checkMemoryAccess(address, 4, WRITE);
         try {
-            unsafe.putFloat(address, x);
+            UNSAFE_MEMORY_ACCESSOR.putFloat(unsafe, address, x);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1071,7 +1112,7 @@ public final class UnsafeDelegator {
     public static long getLong(Unsafe unsafe, long address) {
         checkMemoryAccess(address, 8, READ);
         try {
-            return unsafe.getLong(address);
+            return UNSAFE_MEMORY_ACCESSOR.getLong(unsafe, address);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1080,7 +1121,7 @@ public final class UnsafeDelegator {
     public static void putLong(Unsafe unsafe, long address, long x) {
         checkMemoryAccess(address, 8, WRITE);
         try {
-            unsafe.putLong(address, x);
+            UNSAFE_MEMORY_ACCESSOR.putLong(unsafe, address, x);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1089,7 +1130,7 @@ public final class UnsafeDelegator {
     public static double getDouble(Unsafe unsafe, long address) {
         checkMemoryAccess(address, 8, READ);
         try {
-            return unsafe.getDouble(address);
+            return UNSAFE_MEMORY_ACCESSOR.getDouble(unsafe, address);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1098,7 +1139,7 @@ public final class UnsafeDelegator {
     public static void putDouble(Unsafe unsafe, long address, double x) {
         checkMemoryAccess(address, 8, WRITE);
         try {
-            unsafe.putDouble(address, x);
+            UNSAFE_MEMORY_ACCESSOR.putDouble(unsafe, address, x);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1107,20 +1148,18 @@ public final class UnsafeDelegator {
     //////////////////////////////////////////////////////////////////////////
     
     public static long getAddress(Unsafe unsafe, long address) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(address, unsafe.addressSize(), READ);
+        checkMemoryAccess(address, OBJECT_REFERENCE_SIZE, READ);
         try {
-            return unsafe.getAddress(address);
+            return UNSAFE_MEMORY_ACCESSOR.getAddress(unsafe, address);
         } finally {
             onReturnMemoryAccess();
         }
     }
     
     public static void putAddress(Unsafe unsafe, long address, long x) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(address, unsafe.addressSize(), WRITE);
+        checkMemoryAccess(address, OBJECT_REFERENCE_SIZE, WRITE);
         try {
-            unsafe.putAddress(address, x);
+            UNSAFE_MEMORY_ACCESSOR.putAddress(unsafe, address, x);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1131,7 +1170,7 @@ public final class UnsafeDelegator {
     public static void setMemory(Unsafe unsafe, long address, long bytes, byte value) {
         checkMemoryAccess(address, bytes, WRITE);
         try {
-            unsafe.setMemory(address, bytes, value);
+            UNSAFE_MEMORY_ACCESSOR.setMemory(unsafe, address, bytes, value);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1143,7 +1182,7 @@ public final class UnsafeDelegator {
     public static void setMemory(Unsafe unsafe, Object o, long offset, long bytes, byte value) {
         checkMemoryAccess(o, offset, bytes, WRITE);
         try {
-            unsafe.setMemory(o, offset, bytes, value);
+            UNSAFE_MEMORY_ACCESSOR.setMemory(unsafe, o, offset, bytes, value);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1152,7 +1191,7 @@ public final class UnsafeDelegator {
     public static void copyMemory(Unsafe unsafe, long srcAddress, long destAddress, long bytes) {
         checkMemoryAccess(srcAddress, destAddress, bytes);
         try {
-            unsafe.copyMemory(srcAddress, destAddress, bytes);
+            UNSAFE_MEMORY_ACCESSOR.copyMemory(unsafe, srcAddress, destAddress, bytes);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1165,7 +1204,7 @@ public final class UnsafeDelegator {
                                   Object destBase, long destOffset, long bytes) {
         checkMemoryAccess(srcBase, srcOffset, destBase, destOffset, bytes);
         try {
-            unsafe.copyMemory(srcBase, srcOffset, destBase, destOffset, bytes);
+            UNSAFE_MEMORY_ACCESSOR.copyMemory(unsafe, srcBase, srcOffset, destBase, destOffset, bytes);
         } finally {
             onReturnMemoryAccess();
         }
@@ -1177,7 +1216,7 @@ public final class UnsafeDelegator {
                                             int expected, int x) {
         checkMemoryAccess(o, offset, 4, READ_WRITE);
         try {
-            return unsafe.compareAndSwapInt(o, offset, expected, x);
+            return UNSAFE_MEMORY_ACCESSOR.compareAndSwapInt(unsafe, o, offset, expected, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1187,7 +1226,7 @@ public final class UnsafeDelegator {
                                              long expected, long x) {
         checkMemoryAccess(o, offset, 8, READ_WRITE);
         try {
-            return unsafe.compareAndSwapLong(o, offset, expected, x);
+            return UNSAFE_MEMORY_ACCESSOR.compareAndSwapLong(unsafe, o, offset, expected, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1195,10 +1234,9 @@ public final class UnsafeDelegator {
 
     public static boolean compareAndSwapObject(Unsafe unsafe, Object o, long offset, 
                                                Object expected, Object x) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(o, offset, unsafe.addressSize(), READ_WRITE);
+        checkMemoryAccess(o, offset, OBJECT_REFERENCE_SIZE, READ_WRITE);
         try {
-            return unsafe.compareAndSwapObject(o, offset, expected, x);
+            return UNSAFE_MEMORY_ACCESSOR.compareAndSwapObject(unsafe, o, offset, expected, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1209,7 +1247,7 @@ public final class UnsafeDelegator {
     public static void putOrderedInt(Unsafe unsafe, Object o, long offset, int x) {
         checkMemoryAccess(o, offset, 4, WRITE);
         try {
-            unsafe.putOrderedInt(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putOrderedInt(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1218,17 +1256,16 @@ public final class UnsafeDelegator {
     public static void putOrderedLong(Unsafe unsafe, Object o, long offset, long x) {
         checkMemoryAccess(o, offset, 8, WRITE);
         try {
-            unsafe.putOrderedLong(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putOrderedLong(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
     }
     
     public static void putOrderedObject(Unsafe unsafe, Object o, long offset, Object x) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(o, offset, unsafe.addressSize(), WRITE);
+        checkMemoryAccess(o, offset, OBJECT_REFERENCE_SIZE, WRITE);
         try {
-            unsafe.putOrderedObject(o, offset, x);
+            UNSAFE_MEMORY_ACCESSOR.putOrderedObject(unsafe, o, offset, x);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1242,7 +1279,7 @@ public final class UnsafeDelegator {
     public static int getAndAddInt(Unsafe unsafe, Object o, long offset, int delta) {
         checkMemoryAccess(o, offset, 4, READ_WRITE);
         try {
-            return unsafe.getAndAddInt(o, offset, delta);
+            return UNSAFE_MEMORY_ACCESSOR.getAndAddInt(unsafe, o, offset, delta);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1254,7 +1291,7 @@ public final class UnsafeDelegator {
     public static long getAndAddLong(Unsafe unsafe, Object o, long offset, long delta) {
         checkMemoryAccess(o, offset, 8, READ_WRITE);
         try {
-            return unsafe.getAndAddLong(o, offset, delta);
+            return UNSAFE_MEMORY_ACCESSOR.getAndAddLong(unsafe, o, offset, delta);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1266,7 +1303,7 @@ public final class UnsafeDelegator {
     public static int getAndSetInt(Unsafe unsafe, Object o, long offset, int newValue) {
         checkMemoryAccess(o, offset, 4, READ_WRITE);
         try {
-            return unsafe.getAndSetInt(o, offset, newValue);
+            return UNSAFE_MEMORY_ACCESSOR.getAndSetInt(unsafe, o, offset, newValue);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1278,7 +1315,7 @@ public final class UnsafeDelegator {
     public static long getAndSetLong(Unsafe unsafe, Object o, long offset, long newValue) {
         checkMemoryAccess(o, offset, 8, READ_WRITE);
         try {
-            return unsafe.getAndSetLong(o, offset, newValue);
+            return UNSAFE_MEMORY_ACCESSOR.getAndSetLong(unsafe, o, offset, newValue);
         } finally {
             onReturnMemoryAccess(o);
         }
@@ -1288,10 +1325,9 @@ public final class UnsafeDelegator {
      * @since 1.8
      */
     public static Object getAndSetObject(Unsafe unsafe, Object o, long offset, Object newValue) {
-        // TODO Consider compressed-references
-        checkMemoryAccess(o, offset, unsafe.addressSize(), READ_WRITE);
+        checkMemoryAccess(o, offset, OBJECT_REFERENCE_SIZE, READ_WRITE);
         try {
-            return unsafe.getAndSetObject(o, offset, newValue);
+            return UNSAFE_MEMORY_ACCESSOR.getAndSetObject(unsafe, o, offset, newValue);
         } finally {
             onReturnMemoryAccess(o);
         }
