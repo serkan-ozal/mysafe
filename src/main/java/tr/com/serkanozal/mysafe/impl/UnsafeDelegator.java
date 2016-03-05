@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2015, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.IllegalMemoryAccessListener;
 import tr.com.serkanozal.mysafe.MySafe;
-import tr.com.serkanozal.mysafe.UnsafeListener;
+import tr.com.serkanozal.mysafe.MemoryListener;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessor;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessorFactory;
 import static tr.com.serkanozal.mysafe.AllocatedMemoryStorage.INVALID;
@@ -47,8 +47,8 @@ public final class UnsafeDelegator {
     private static final Unsafe DEFAULT_UNSAFE;
     private static final UnsafeMemoryAccessor UNSAFE_MEMORY_ACCESSOR;
     private static final UnsafeLock UNSAFE_LOCK;
-    private static Set<UnsafeListener> LISTENERS = 
-            Collections.newSetFromMap(new ConcurrentHashMap<UnsafeListener, Boolean>());
+    private static Set<MemoryListener> LISTENERS = 
+            Collections.newSetFromMap(new ConcurrentHashMap<MemoryListener, Boolean>());
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
     
@@ -64,7 +64,7 @@ public final class UnsafeDelegator {
         UNSAFE_LOCK = new UnsafeLock(DEFAULT_UNSAFE);
         OBJECT_REFERENCE_SIZE = DEFAULT_UNSAFE.arrayIndexScale(Object[].class);
         
-        String ALLOCATED_MEMORYStorageImplClassName = System.getProperty("mysafe.ALLOCATED_MEMORYStorageImpl");
+        String ALLOCATED_MEMORYStorageImplClassName = System.getProperty("mysafe.allocatedMemoryStorageImpl");
         if (ALLOCATED_MEMORYStorageImplClassName != null) {
             try {
                 @SuppressWarnings("unchecked")
@@ -178,66 +178,82 @@ public final class UnsafeDelegator {
     }
     
     //////////////////////////////////////////////////////////////////////////
-    
-    public static long getAllocatedMemorySize() {
-        return ALLOCATED_MEMORY.get();
+
+    public static void beforeAllocateMemory(long size) {
+        if (registeredListenerExist) {
+            for (MemoryListener listener : LISTENERS) {
+                listener.beforeAllocateMemory(size);
+            }
+        }
     }
     
-    public static long allocateMemory(Unsafe unsafe, long size) {
-        if (registeredListenerExist) {
-            for (UnsafeListener listener : LISTENERS) {
-                listener.beforeAllocateMemory(unsafe, size);
-            }
-        }    
-        long address = unsafe.allocateMemory(size);
+    private static long doAllocateMemory(Unsafe unsafe, long size) {
+        return unsafe.allocateMemory(size);
+    }
+    
+    public static void afterAllocateMemory(long size, long address) {
         ALLOCATED_MEMORY_STORAGE.put(address, size);
         ALLOCATED_MEMORY.addAndGet(size);
         if (registeredListenerExist) {
-            for (UnsafeListener listener : LISTENERS) {
-                listener.afterAllocateMemory(unsafe, address, size);
+            for (MemoryListener listener : LISTENERS) {
+                listener.afterAllocateMemory(address, size);
             }
         }    
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug("Allocated memory at address " + 
                          String.format("0x%016x", address) + " with size " + size);
         }     
+    }
+
+    public static long allocateMemory(Unsafe unsafe, long size) {
+        beforeAllocateMemory(size);
+        long address = doAllocateMemory(unsafe, size);
+        afterAllocateMemory(size, address);
         return address; 
     }
     
-    public static void freeMemory(Unsafe unsafe, long address) {
+    //////////////////////////////////////////////////////////////////////////
+    
+    public static long beforeFreeMemory(long address) {
         if (registeredListenerExist) {
-            for (UnsafeListener listener : LISTENERS) {
-                listener.beforeFreeMemory(unsafe, address);
+            for (MemoryListener listener : LISTENERS) {
+                listener.beforeFreeMemory(address);
             }
         }    
-        long removedSize = ALLOCATED_MEMORY_STORAGE.remove(address);
-        if (removedSize != INVALID) {
+        return ALLOCATED_MEMORY_STORAGE.remove(address);
+    }
+    
+    private static void doFreeMemory(Unsafe unsafe, long address) {
+        if (safeModeEnabled) {
+            UNSAFE_LOCK.acquireFreeLock();
+        }    
+        try {
+            unsafe.freeMemory(address);
+        } finally {
             if (safeModeEnabled) {
                 UNSAFE_LOCK.acquireFreeLock();
-            }    
-            try {
-                unsafe.freeMemory(address);
-            } finally {
-                if (safeModeEnabled) {
-                    UNSAFE_LOCK.acquireFreeLock();
-                }     
-            }
-            ALLOCATED_MEMORY.addAndGet(-removedSize);
+            }     
+        }
+    }
+    
+    public static void afterFreeMemory(long address, long size) {
+        if (size != INVALID) {
+            ALLOCATED_MEMORY.addAndGet(-size);
             if (registeredListenerExist) {
-                for (UnsafeListener listener : LISTENERS) {
-                    listener.afterFreeMemory(unsafe, address, removedSize, true);
+                for (MemoryListener listener : LISTENERS) {
+                    listener.afterFreeMemory(address, size, true);
                 }
             }    
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("Free memory at address " + String.format("0x%016x", address));
             }    
         } else {
-            String msg = "Trying to free unallocated (or out of the record) memory at address " + 
-                         String.format("0x%016x", address);
             if (safeModeEnabled) {
+                String msg = "Tried to free unallocated (or out of the record) memory at address " + 
+                        String.format("0x%016x", address);
                 if (registeredListenerExist) {
-                    for (UnsafeListener listener : LISTENERS) {
-                        listener.afterFreeMemory(unsafe, address, INVALID, false);
+                    for (MemoryListener listener : LISTENERS) {
+                        listener.afterFreeMemory(address, INVALID, false);
                     }
                 }    
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
@@ -246,50 +262,67 @@ public final class UnsafeDelegator {
                 LOGGER.error(msg); 
                 throw new IllegalArgumentException(msg);
             } else {
-                LOGGER.warn(msg);
-                if (safeModeEnabled) {
-                    UNSAFE_LOCK.acquireFreeLock();
-                }    
-                try {
-                    unsafe.freeMemory(address);
-                } finally {
-                    if (safeModeEnabled) {
-                        UNSAFE_LOCK.acquireFreeLock();
-                    }    
-                }
                 if (registeredListenerExist) {
-                    for (UnsafeListener listener : LISTENERS) {
-                        listener.afterFreeMemory(unsafe, address, INVALID, false);
+                    for (MemoryListener listener : LISTENERS) {
+                        listener.afterFreeMemory(address, INVALID, false);
                     }
                 }    
             }
         }
     }
     
-    public static long reallocateMemory(Unsafe unsafe, long oldAddress, long newSize) {
+    public static void freeMemory(Unsafe unsafe, long address) {  
+        long size = beforeFreeMemory(address);
+        if (size != INVALID) {
+            doFreeMemory(unsafe, address);
+            afterFreeMemory(address, size);
+        } else {
+            if (!safeModeEnabled) {
+                String msg = "Trying to free unallocated (or out of the record) memory at address " + 
+                             String.format("0x%016x", address);
+                LOGGER.warn(msg);
+                doFreeMemory(unsafe, address);
+            } else {
+                afterFreeMemory(address, size);
+            }    
+        }
+    }
+    
+    //////////////////////////////////////////////////////////////////////////
+    
+    public static long beforeReallocateMemory(long oldAddress) {
         long oldSize = ALLOCATED_MEMORY_STORAGE.remove(oldAddress);
         if (oldSize != INVALID) {
             if (registeredListenerExist) {
-                for (UnsafeListener listener : LISTENERS) {
-                    listener.beforeReallocateMemory(unsafe, oldAddress, oldSize);
+                for (MemoryListener listener : LISTENERS) {
+                    listener.beforeReallocateMemory(oldAddress, oldSize);
                 }
             }    
-            long newAddress;
+        }
+        return oldSize;
+    }
+    
+    private static long doReallocateMemory(Unsafe unsafe, long oldAddress, long newSize) {
+        if (safeModeEnabled) {
+            UNSAFE_LOCK.acquireFreeLock();
+        }   
+        try {
+            return unsafe.reallocateMemory(oldAddress, newSize);
+        } finally {
             if (safeModeEnabled) {
-                UNSAFE_LOCK.acquireFreeLock();
-            }    
-            try {
-                newAddress = unsafe.reallocateMemory(oldAddress, newSize);
-            } finally {
-                if (safeModeEnabled) {
-                    UNSAFE_LOCK.releaseFreeLock();
-                }    
+                UNSAFE_LOCK.releaseFreeLock();
             }
+        }
+    }
+    
+    public static void afterReallocateMemory(long oldAddress, long oldSize, 
+                                             long newAddress, long newSize) {
+        if (oldSize != INVALID) {
             ALLOCATED_MEMORY_STORAGE.put(newAddress, newSize);
             ALLOCATED_MEMORY.addAndGet(newSize - oldSize);
             if (registeredListenerExist) {
-                for (UnsafeListener listener : LISTENERS) {
-                    listener.afterReallocateMemory(unsafe, oldAddress, oldSize, newAddress, newSize, true);
+                for (MemoryListener listener : LISTENERS) {
+                    listener.afterReallocateMemory(oldAddress, oldSize, newAddress, newSize, true);
                 }
             }    
             if (LOGGER.isDebugEnabled()) {
@@ -297,14 +330,13 @@ public final class UnsafeDelegator {
                              String.format("0x%016x", oldAddress) + " with size of " + oldSize + 
                              " to address " + String.format("0x%016x", newAddress) + " with size of " + newSize);
             }  
-            return newAddress;
         }  else {
-            String msg = "Trying to reallocate unallocated (or out of the record) memory at address " + 
-                         String.format("0x%016x", oldAddress) + " with new size " + newSize;
             if (safeModeEnabled) {
+                String msg = "Tried to reallocate unallocated (or out of the record) memory at address " + 
+                             String.format("0x%016x", oldAddress) + " with new size " + newSize;
                 if (registeredListenerExist) {
-                    for (UnsafeListener listener : LISTENERS) {
-                        listener.beforeReallocateMemory(unsafe, oldAddress, INVALID);
+                    for (MemoryListener listener : LISTENERS) {
+                        listener.beforeReallocateMemory(oldAddress, INVALID);
                     }
                 }    
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
@@ -313,29 +345,40 @@ public final class UnsafeDelegator {
                 LOGGER.error(msg); 
                 throw new IllegalArgumentException(msg);
             } else {
-                LOGGER.warn(msg);
-                long newAddress;
-                if (safeModeEnabled) {
-                    UNSAFE_LOCK.acquireFreeLock();
-                }    
-                try {
-                    newAddress = unsafe.reallocateMemory(oldAddress, newSize);
-                } finally {
-                    if (safeModeEnabled) {
-                        UNSAFE_LOCK.releaseFreeLock();
-                    }    
-                }
                 if (registeredListenerExist) {
-                    for (UnsafeListener listener : LISTENERS) {
-                        listener.afterReallocateMemory(unsafe, oldAddress, INVALID, newAddress, newSize, false);
+                    for (MemoryListener listener : LISTENERS) {
+                        listener.afterReallocateMemory(oldAddress, INVALID, newAddress, newSize, false);
                     }
                 }    
-                return newAddress;
             }
         }
     }
     
+    public static long reallocateMemory(Unsafe unsafe, long oldAddress, long newSize) {
+        long oldSize = beforeReallocateMemory(oldAddress);
+        long newAddress = INVALID;
+        if (oldSize != INVALID) {
+            newAddress = doReallocateMemory(unsafe, oldAddress, newSize);
+            afterReallocateMemory(oldAddress, oldSize, newAddress, newSize);
+
+        } else {
+            if (!safeModeEnabled) {
+                String msg = "Trying to reallocate unallocated (or out of the record) memory at address " + 
+                             String.format("0x%016x", oldAddress) + " with new size " + newSize;
+                LOGGER.warn(msg);
+                newAddress = doReallocateMemory(unsafe, oldAddress, newSize);
+            } else {
+                afterReallocateMemory(oldAddress, oldSize, newAddress, newSize);
+            }
+        }
+        return newAddress;
+    }
+    
     //////////////////////////////////////////////////////////////////////////
+    
+    public static long getAllocatedMemorySize() {
+        return ALLOCATED_MEMORY.get();
+    }
     
     public static void iterateOnAllocatedMemories(AllocatedMemoryIterator iterator) {
         ALLOCATED_MEMORY_STORAGE.iterate(iterator);     
@@ -377,12 +420,12 @@ public final class UnsafeDelegator {
     
     //////////////////////////////////////////////////////////////////////////
     
-    public static synchronized void registerUnsafeListener(UnsafeListener listener) {
+    public static synchronized void registerUnsafeListener(MemoryListener listener) {
         LISTENERS.add(listener);
         registeredListenerExist = true;
     }
     
-    public static synchronized void deregisterUnsafeListener(UnsafeListener listener) {
+    public static synchronized void deregisterUnsafeListener(MemoryListener listener) {
         LISTENERS.remove(listener);
         registeredListenerExist = !LISTENERS.isEmpty();
     }

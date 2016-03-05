@@ -15,19 +15,20 @@
  */
 package tr.com.serkanozal.mysafe.impl.instrument;
 
-public final class UnsafeUsageInstrumenterFactory {
+class MySafeInstrumenter implements UnsafeUsageInstrumenter {
 
-    private UnsafeUsageInstrumenterFactory() {
-        
+    private final UnsafeUsageInstrumenter[] instrumenters;
+    
+    MySafeInstrumenter(UnsafeUsageInstrumenter[] instrumenters) {
+        this.instrumenters = instrumenters;
     }
     
-    public static UnsafeUsageInstrumenter createUnsafeUsageInstrumenter() {
-        UnsafeUsageInstrumenter[] instrumenters = 
-                new UnsafeUsageInstrumenter[] {
-                    new UnsafeInterceptorInstrumenter(),
-                    new CustomMemoryManagementInstrumenter()
-                };
-        return new MySafeInstrumenter(instrumenters);
+    @Override
+    public byte[] instrument(String className, byte[] classData) {
+        for (UnsafeUsageInstrumenter instrumenter : instrumenters) {
+            classData = instrumenter.instrument(className, classData);
+        }
+        return classData;
     }
-    
+
 }

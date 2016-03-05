@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2015, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -145,20 +145,20 @@ public final class MySafe {
     }
     
     /**
-     * Registers the given {@link UnsafeListener} instance.
+     * Registers the given {@link MemoryListener} instance.
      * 
-     * @param listener the {@link UnsafeListener} instance to be registered
+     * @param listener the {@link MemoryListener} instance to be registered
      */
-    public static void registerUnsafeListener(UnsafeListener listener) {
+    public static void registerUnsafeListener(MemoryListener listener) {
         UnsafeDelegator.registerUnsafeListener(listener);
     }
     
     /**
-     * Deregisters the given {@link UnsafeListener} instance.
+     * Deregisters the given {@link MemoryListener} instance.
      * 
-     * @param listener the {@link UnsafeListener} instance to be deregistered
+     * @param listener the {@link MemoryListener} instance to be deregistered
      */
-    public static void deregisterUnsafeListener(UnsafeListener listener) {
+    public static void deregisterUnsafeListener(MemoryListener listener) {
         UnsafeDelegator.deregisterUnsafeListener(listener);
     }
 

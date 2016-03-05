@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2015, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,29 +50,29 @@ public class Demo {
             Unsafe unsafe = MySafe.getUnsafe(); // Or get unsafe yourself with reflection hack, it doesn't matter
 
             // Create listener to be notified for each allocate/free
-            UnsafeListener listener = new UnsafeListener() {
+            MemoryListener listener = new MemoryListener() {
 
                 @Override
-                public void beforeAllocateMemory(Unsafe unsafe, long size) {
+                public void beforeAllocateMemory(long size) {
                     System.out.println("beforeAllocateMemory >>> " + 
                                            "size=" + size);
                 }
                 
                 @Override
-                public void afterAllocateMemory(Unsafe unsafe, long address, long size) {
+                public void afterAllocateMemory(long address, long size) {
                     System.out.println("afterAllocateMemory >>> " + 
                                             "address=" + address + 
                                             ", size=" + size);
                 }
                 
                 @Override
-                public void beforeFreeMemory(Unsafe unsafe, long address) {
+                public void beforeFreeMemory(long address) {
                     System.out.println("beforeFreeMemory >>> " + 
                                             "address=" + address);
                 }
                 
                 @Override
-                public void afterFreeMemory(Unsafe unsafe, long address, long size, boolean isKnownAddress) {
+                public void afterFreeMemory(long address, long size, boolean isKnownAddress) {
                     System.out.println("afterFreeMemory >>> " + 
                                             "address=" + address + 
                                             ", size=" + size + 
@@ -80,15 +80,14 @@ public class Demo {
                 }
 
                 @Override
-                public void beforeReallocateMemory(Unsafe unsafe,
-                        long oldAddress, long oldSize) {
+                public void beforeReallocateMemory(long oldAddress, long oldSize) {
                     System.out.println("beforeReallocateMemory >>> " + 
                                             "oldAddress=" + oldAddress + 
                                             ", oldSize=" + oldSize);
                 }
 
                 @Override
-                public void afterReallocateMemory(Unsafe unsafe, long oldAddress, long oldSize, 
+                public void afterReallocateMemory(long oldAddress, long oldSize, 
                         long newAddress, long newSize, boolean isKnownAddress) {
                     System.out.println("afterReallocateMemory >>> " + 
                                             "oldAddress=" + oldAddress + 
@@ -106,6 +105,7 @@ public class Demo {
             // Allocate a sample memory
             long address = unsafe.allocateMemory(8);
             
+
             // Write to valid memory
             unsafe.putInt(address, 100);
             
@@ -128,20 +128,20 @@ public class Demo {
 
             // Free allocated memory
             unsafe.freeMemory(address);
-            
+
             try {
                 // Free non-allocated memory
                 unsafe.freeMemory(1234);
             } catch (IllegalArgumentException e) {
                 e.printStackTrace();
             }
-            
+
             // Allocate a sample memory
             long oldAddress = unsafe.allocateMemory(16);
 
             // Reallocate memory
             long newAddress = unsafe.reallocateMemory(oldAddress, 32);
-            
+    
             // Free reallocated memory
             unsafe.freeMemory(newAddress);
             
@@ -149,7 +149,7 @@ public class Demo {
             for (int i = 1; i <= 32; i++) {
                 unsafe.allocateMemory(i * 8);
             }
-            
+
             // Iterate on all allocated memories and print them
             MySafe.iterateOnAllocatedMemories(new AllocatedMemoryIterator() {
                 
@@ -167,6 +167,7 @@ public class Demo {
             
             // Dump all allocated memories to console
             MySafe.dumpAllocatedMemories();
+
         }
         
     }
