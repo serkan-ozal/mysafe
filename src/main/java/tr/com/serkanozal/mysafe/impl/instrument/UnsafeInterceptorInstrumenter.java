@@ -23,7 +23,7 @@ import org.objectweb.asm.Opcodes;
 
 class UnsafeInterceptorInstrumenter implements UnsafeUsageInstrumenter {
 
-    private static final boolean USE_CUSTOM_MEMORY_MANAGEMENT = 
+    private final boolean USE_CUSTOM_MEMORY_MANAGEMENT = 
             Boolean.getBoolean("mysafe.useCustomMemoryManagement");
     
     @Override
@@ -34,7 +34,7 @@ class UnsafeInterceptorInstrumenter implements UnsafeUsageInstrumenter {
             return classData;
         }
         ClassReader cr = new ClassReader(classData);
-        ClassWriter cw = new ClassWriter(ClassReader.SKIP_DEBUG) {
+        ClassWriter cw = new ClassWriter(0) {
             @Override
             public MethodVisitor visitMethod(final int access, final String name,
                     final String desc, final String signature, final String[] exceptions) {

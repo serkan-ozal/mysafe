@@ -53,7 +53,7 @@ public final class UnsafeDelegator {
     private static final int OBJECT_REFERENCE_SIZE;
     
     private static volatile boolean registeredListenerExist = false;
-    private static volatile boolean safeModeEnabled = !Boolean.getBoolean("mysafe.disableSafeMode");
+    private static volatile boolean safeModeEnabled = Boolean.getBoolean("mysafe.enableSafeMode");
 
     static {
         MySafe.initialize();
@@ -107,6 +107,7 @@ public final class UnsafeDelegator {
         
         private final Unsafe UNSAFE;
         private final long UNSAFE_STATE_FIELD_OFFSET;
+        private final int MAX_CONCURRENCY_WINDOW = 4 * Runtime.getRuntime().availableProcessors();
         
         private volatile int unsafeState = 0;
 
@@ -120,10 +121,12 @@ public final class UnsafeDelegator {
         }
         
         private void acquireFreeLock() {
-            final int minValue = Integer.MIN_VALUE;
             for (;;) {
                 int currentState = unsafeState;
-                if (currentState <= 0 && currentState != minValue) {
+                if (currentState <= -MAX_CONCURRENCY_WINDOW) {
+                    while (currentState < 0);
+                }
+                if (currentState <= 0 && currentState > -MAX_CONCURRENCY_WINDOW) {
                     if (UNSAFE.compareAndSwapInt(this, UNSAFE_STATE_FIELD_OFFSET, currentState, currentState - 1)) {
                         break;
                     }
@@ -132,10 +135,12 @@ public final class UnsafeDelegator {
         }
         
         private void acquireAccessLock() {
-            final int maxValue = Integer.MAX_VALUE;
             for (;;) {
                 int currentState = unsafeState;
-                if (currentState >= 0 && currentState != maxValue) {
+                if (currentState >= MAX_CONCURRENCY_WINDOW) {
+                    while (currentState > 0);
+                }
+                if (currentState >= 0 && currentState < MAX_CONCURRENCY_WINDOW) {
                     if (UNSAFE.compareAndSwapInt(this, UNSAFE_STATE_FIELD_OFFSET, currentState, currentState + 1)) {
                         break;
                     }

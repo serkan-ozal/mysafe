@@ -42,7 +42,13 @@ import tr.com.serkanozal.mysafe.config.ReallocationPoint;
  */
 public class CustomMemoryManagementDemo {
 
+    static {
+        System.setProperty("mysafe.enableSafeMode", "true");
+    }
+
     public static void main(String[] args) throws Exception {
+        
+        
         MySafe.youAreMine();
 
         // Demo code is run on another class.

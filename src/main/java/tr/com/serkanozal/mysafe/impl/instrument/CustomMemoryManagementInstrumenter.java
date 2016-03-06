@@ -23,8 +23,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
-import org.apache.log4j.Logger;
-
 import tr.com.serkanozal.mysafe.config.AllocationPoint;
 import tr.com.serkanozal.mysafe.config.FreePoint;
 import tr.com.serkanozal.mysafe.config.ReallocationPoint;
@@ -36,22 +34,20 @@ import javassist.NotFoundException;
 
 class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
 
-    private static final Logger LOGGER = Logger.getLogger(CustomMemoryManagementInstrumenter.class);
-    
-    private static final boolean USE_CUSTOM_MEMORY_MANAGEMENT = 
+    private final boolean USE_CUSTOM_MEMORY_MANAGEMENT = 
             Boolean.getBoolean("mysafe.useCustomMemoryManagement");
-    private static final ClassPool CP = ClassPool.getDefault();
-    private static final Map<String, String> CONFIGURED_ALLOCATION_POINTS = new HashMap<String, String>();
-    private static final Map<String, String> CONFIGURED_FREE_POINTS = new HashMap<String, String>();
-    private static final Map<String, String> CONFIGURED_REALLOCATION_POINTS = new HashMap<String, String>();
+    private final ClassPool CP = ClassPool.getDefault();
+    private final Map<String, String> CONFIGURED_ALLOCATION_POINTS = new HashMap<String, String>();
+    private final Map<String, String> CONFIGURED_FREE_POINTS = new HashMap<String, String>();
+    private final Map<String, String> CONFIGURED_REALLOCATION_POINTS = new HashMap<String, String>();
     
-    static {
+    CustomMemoryManagementInstrumenter() {
         if (USE_CUSTOM_MEMORY_MANAGEMENT) {
             init();
         }
     }
     
-    private static void init() {
+    private void init() {
         try {
             InputStream mySafeConfigInputStream = 
                     CustomMemoryManagementInstrumenter.class.getClassLoader().
@@ -63,33 +59,35 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
                     String propValue = mySafeConfigProps.getProperty(propName);
                     String[] propNameParts = propName.split("#");
                     if (propNameParts.length != 2) {
-                        LOGGER.warn("Invalid memory management point name: " + propName + 
-                                    ". It must be in the form of \"<class_name>#<method_name>\".");
+                        System.err.println("Invalid memory management point name: " + propName + 
+                                           ". It must be in the form of \"<class_name>#<method_name>\".");
                         continue;
                     }
                     String className = propNameParts[0];
                     String methodName = propNameParts[1];
                     if ("ALLOCATION_POINT".equals(propValue)) {
                         CONFIGURED_ALLOCATION_POINTS.put(className, methodName);
-                        LOGGER.info("Custom memory allocation point: " + 
-                                    "className=" + className + ", methodName=" + methodName);
+                        System.out.println("Custom memory allocation point: " + 
+                                           "className=" + className + ", methodName=" + methodName);
                     } else if ("FREE_POINT".equals(propValue)) {
                         CONFIGURED_FREE_POINTS.put(className, methodName);
-                        LOGGER.info("Custom memory free point: " + 
-                                    "className=" + className + ", methodName=" + methodName);
+                        System.out.println("Custom memory free point: " + 
+                                           "className=" + className + ", methodName=" + methodName);
                     } else if ("REALLOCATION_POINT".equals(propValue)) {
                         CONFIGURED_REALLOCATION_POINTS.put(className, methodName);
-                        LOGGER.info("Custom memory reallocation point: " + 
-                                    "className=" + className + ", methodName=" + methodName);
+                        System.out.println("Custom memory reallocation point: " + 
+                                           "className=" + className + ", methodName=" + methodName);
                     } else {
-                        LOGGER.warn("Invalid memory management point type: " + propValue + 
-                                    ". It can only be one of the " + 
-                                    "\"ALLOCATION_POINT\", \"FREE_POINT\" and \"REALLOCATION_POINT\".");
+                        System.err.println("Invalid memory management point type: " + propValue + 
+                                           ". It can only be one of the " + 
+                                           "\"ALLOCATION_POINT\", \"FREE_POINT\" and \"REALLOCATION_POINT\".");
                     }
                 }
             }    
         } catch (Throwable t) {
-            LOGGER.error("Error occured while trying to load config from \"mysafe-config.properties\" file", t);
+            System.err.println("Error occured while trying to load config from " + 
+                               "\"mysafe-config.properties\" file: " + t.getMessage());
+            t.printStackTrace();
         }
         CP.importPackage("tr.com.serkanozal.mysafe");
         CP.importPackage("tr.com.serkanozal.mysafe.impl");
@@ -117,9 +115,10 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
                 }
                 return clazz.toBytecode();
             } catch (Throwable t) {
-                LOGGER.error("Error occured while instrumenting " + className + 
-                             " for custom memory management. " +
-                             "So skipping instrumentation on this class.", t);
+                System.err.println("Skipping instrumentation on " + className + " class. " + 
+                                   "Because an error occured while instrumenting " + className + 
+                                   " for custom memory management: " + t.getMessage());
+                t.printStackTrace();
             }
             return classData;
         } else {

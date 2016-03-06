@@ -35,6 +35,10 @@ import sun.misc.Unsafe;
  */
 public class Demo {
 
+    static {
+        System.setProperty("mysafe.enableSafeMode", "true");
+    }
+    
     public static void main(String[] args) throws Exception {
         MySafe.youAreMine();
 
