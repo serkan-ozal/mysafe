@@ -16,7 +16,7 @@
 package tr.com.serkanozal.mysafe;
 
 /**
- * Contract point to be notified for {@link sun.misc.Unsafe} usage.
+ * Contract point to be notified for memory usage (allocation/free/reallocation).
  * 
  * @author Serkan OZAL
  */

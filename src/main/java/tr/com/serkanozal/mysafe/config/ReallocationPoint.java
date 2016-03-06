@@ -34,6 +34,10 @@ import java.lang.annotation.Target;
  *  <li>Return type can only be <tt>long</tt> and it must be reallocated address.</li>
  * </ul> 
  * </p>
+ * <p>
+ * Also note that the marked method must be concrete method.
+ * Must not be neither method definition on interface nor on abstract class.
+ * </p>
  * 
  * @author Serkan OZAL
  */

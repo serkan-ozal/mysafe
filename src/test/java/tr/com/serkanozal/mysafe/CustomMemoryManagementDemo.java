@@ -16,9 +16,16 @@
 package tr.com.serkanozal.mysafe;
 
 import sun.misc.Unsafe;
+import tr.com.serkanozal.mysafe.config.AllocationPoint;
+import tr.com.serkanozal.mysafe.config.FreePoint;
+import tr.com.serkanozal.mysafe.config.ReallocationPoint;
 
 /**
- * Demo application to show how to use <b>MySafe</b>. 
+ * Demo application to show how to use <b>MySafe</b> with custom memory management.
+ * Custom memory management means that memory allocation/free/reallocation operations
+ * are not handled directly over {@link Unsafe} but over custom implementation.
+ * For example, user might acquire memory in batch from OS, caches it 
+ * and then serves requested memories from there.
  * 
  * <pre>
  * There are 3 ways of running this demo (also <b>MySafe</b>):
@@ -33,7 +40,7 @@ import sun.misc.Unsafe;
  * 
  * @author Serkan OZAL
  */
-public class Demo {
+public class CustomMemoryManagementDemo {
 
     public static void main(String[] args) throws Exception {
         MySafe.youAreMine();
@@ -44,10 +51,31 @@ public class Demo {
         DemoRunner.run();
     }
     
+    private static class MemoryManager {
+        
+        private final Unsafe UNSAFE = MySafe.getUnsafe();
+        
+        @AllocationPoint
+        long allocate(long size) {
+            return UNSAFE.allocateMemory(size);
+        }
+        
+        @FreePoint
+        void free(long address) {
+            UNSAFE.freeMemory(address);
+        }
+        
+        @ReallocationPoint
+        long reallocate(long address, long newSize) {
+            return UNSAFE.reallocateMemory(address, newSize);
+        }
+        
+    }
+    
     private static class DemoRunner {
         
         private static void run() {
-            Unsafe unsafe = MySafe.getUnsafe(); // Or get unsafe yourself with reflection hack, it doesn't matter
+            MemoryManager memoryManager = new MemoryManager();
 
             // Create listener to be notified for each allocate/free
             MemoryListener listener = new MemoryListener() {
@@ -103,50 +131,50 @@ public class Demo {
             MySafe.registerUnsafeListener(listener);
             
             // Allocate a sample memory
-            long address = unsafe.allocateMemory(8);
+            long address = memoryManager.allocate(8);
             
             // Write to valid memory
-            unsafe.putInt(address, 100);
+            memoryManager.UNSAFE.putInt(address, 100);
             
             // Read from valid memory
-            unsafe.getInt(address);
+            memoryManager.UNSAFE.getInt(address);
             
             try {
                 // Write to invalid memory
-                unsafe.putInt(address + 16, 100);
+                memoryManager.UNSAFE.putInt(address + 16, 100);
             } catch (IllegalArgumentException e) {
                 e.printStackTrace();
             }
             
             try {
                 // Read from invalid memory
-                unsafe.getInt(address + 16);
+                memoryManager.UNSAFE.getInt(address + 16);
             } catch (IllegalArgumentException e) {
                 e.printStackTrace();
             }
 
             // Free allocated memory
-            unsafe.freeMemory(address);
+            memoryManager.free(address);
 
             try {
                 // Free non-allocated memory
-                unsafe.freeMemory(1234);
+                memoryManager.free(1234);
             } catch (IllegalArgumentException e) {
                 e.printStackTrace();
             }
 
             // Allocate a sample memory
-            long oldAddress = unsafe.allocateMemory(16);
+            long oldAddress = memoryManager.allocate(16);
 
             // Reallocate memory
-            long newAddress = unsafe.reallocateMemory(oldAddress, 32);
+            long newAddress = memoryManager.reallocate(oldAddress, 32);
     
             // Free reallocated memory
-            unsafe.freeMemory(newAddress);
+            memoryManager.free(newAddress);
             
             // Allocate multiple memory
             for (int i = 1; i <= 32; i++) {
-                unsafe.allocateMemory(i * 8);
+                memoryManager.allocate(i * 8);
             }
 
             // Iterate on all allocated memories and print them

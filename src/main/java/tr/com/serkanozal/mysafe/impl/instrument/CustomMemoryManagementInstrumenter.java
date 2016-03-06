@@ -18,6 +18,10 @@ package tr.com.serkanozal.mysafe.impl.instrument;
 import static tr.com.serkanozal.mysafe.AllocatedMemoryStorage.INVALID;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
 
 import org.apache.log4j.Logger;
 
@@ -37,8 +41,56 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
     private static final boolean USE_CUSTOM_MEMORY_MANAGEMENT = 
             Boolean.getBoolean("mysafe.useCustomMemoryManagement");
     private static final ClassPool CP = ClassPool.getDefault();
+    private static final Map<String, String> CONFIGURED_ALLOCATION_POINTS = new HashMap<String, String>();
+    private static final Map<String, String> CONFIGURED_FREE_POINTS = new HashMap<String, String>();
+    private static final Map<String, String> CONFIGURED_REALLOCATION_POINTS = new HashMap<String, String>();
     
     static {
+        if (USE_CUSTOM_MEMORY_MANAGEMENT) {
+            init();
+        }
+    }
+    
+    private static void init() {
+        try {
+            InputStream mySafeConfigInputStream = 
+                    CustomMemoryManagementInstrumenter.class.getClassLoader().
+                        getResourceAsStream("mysafe-config.properties");
+            if (mySafeConfigInputStream != null) {
+                Properties mySafeConfigProps = new Properties();
+                mySafeConfigProps.load(mySafeConfigInputStream);
+                for (String propName : mySafeConfigProps.stringPropertyNames()) {
+                    String propValue = mySafeConfigProps.getProperty(propName);
+                    String[] propNameParts = propName.split("#");
+                    if (propNameParts.length != 2) {
+                        LOGGER.warn("Invalid memory management point name: " + propName + 
+                                    ". It must be in the form of \"<class_name>#<method_name>\".");
+                        continue;
+                    }
+                    String className = propNameParts[0];
+                    String methodName = propNameParts[1];
+                    if ("ALLOCATION_POINT".equals(propValue)) {
+                        CONFIGURED_ALLOCATION_POINTS.put(className, methodName);
+                        LOGGER.info("Custom memory allocation point: " + 
+                                    "className=" + className + ", methodName=" + methodName);
+                    } else if ("FREE_POINT".equals(propValue)) {
+                        CONFIGURED_FREE_POINTS.put(className, methodName);
+                        LOGGER.info("Custom memory free point: " + 
+                                    "className=" + className + ", methodName=" + methodName);
+                    } else if ("REALLOCATION_POINT".equals(propValue)) {
+                        CONFIGURED_REALLOCATION_POINTS.put(className, methodName);
+                        LOGGER.info("Custom memory reallocation point: " + 
+                                    "className=" + className + ", methodName=" + methodName);
+                    } else {
+                        LOGGER.warn("Invalid memory management point type: " + propValue + 
+                                    ". It can only be one of the " + 
+                                    "\"ALLOCATION_POINT\", \"FREE_POINT\" and \"REALLOCATION_POINT\".");
+                    }
+                }
+            }    
+        } catch (Throwable t) {
+            LOGGER.error("Error occured while trying to load config from \"mysafe-config.properties\" file", t);
+        }
         CP.importPackage("tr.com.serkanozal.mysafe");
         CP.importPackage("tr.com.serkanozal.mysafe.impl");
     }
@@ -49,11 +101,17 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
             try {
                 CtClass clazz = CP.makeClass(new ByteArrayInputStream(classData));
                 for (CtMethod method : clazz.getDeclaredMethods()) {
-                    if (method.hasAnnotation(AllocationPoint.class)) {
+                    if (method.getName().equals(CONFIGURED_ALLOCATION_POINTS.get(clazz.getName())) 
+                        || 
+                        method.hasAnnotation(AllocationPoint.class)) {
                         instrumentAllocationPoint(clazz, method);
-                    } else if (method.hasAnnotation(FreePoint.class)) {
+                    } else if (method.getName().equals(CONFIGURED_FREE_POINTS.get(clazz.getName()))
+                               ||
+                               method.hasAnnotation(FreePoint.class)) {
                         instrumentFreePoint(clazz, method);
-                    } else if (method.hasAnnotation(ReallocationPoint.class)) {
+                    } else if (method.getName().equals(CONFIGURED_REALLOCATION_POINTS.get(clazz.getName()))
+                               ||
+                               method.hasAnnotation(ReallocationPoint.class)) {
                         instrumentReallocationPoint(clazz, method);
                     }
                 }
@@ -129,12 +187,14 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
             return address; 
         */
         StringBuilder generatedMethodBody = new StringBuilder();
+        generatedMethodBody.append("{").append("\n");
         generatedMethodBody.append("UnsafeDelegator.beforeAllocateMemory($1);").append("\n");
         generatedMethodBody.append("long address$$$MySafe$$$ = ").append(actualMethodCallSignature.toString()).append("\n");
         generatedMethodBody.append("UnsafeDelegator.afterAllocateMemory($1, address$$$MySafe$$$);").append("\n");
         generatedMethodBody.append("return address$$$MySafe$$$;").append("\n");
+        generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
-        
+
         clazz.addMethod(generatedMethod);
     }
     
@@ -200,11 +260,13 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
             afterFreeMemory(address, size);   
         */
         StringBuilder generatedMethodBody = new StringBuilder();
+        generatedMethodBody.append("{").append("\n");
         generatedMethodBody.append("long size$$$MySafe$$$ = UnsafeDelegator.beforeFreeMemory($1);").append("\n");
         generatedMethodBody.append("if (size$$$MySafe$$$ != ").append(INVALID).append(") {").append("\n");
-        generatedMethodBody.append(actualMethodCallSignature.toString()).append("\n");
+        generatedMethodBody.append("\t").append(actualMethodCallSignature.toString()).append("\n");
         generatedMethodBody.append("}").append("\n");
         generatedMethodBody.append("UnsafeDelegator.afterFreeMemory($1, size$$$MySafe$$$);").append("\n");
+        generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
         
         clazz.addMethod(generatedMethod);
@@ -275,10 +337,11 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
             return newAddress; 
         */
         StringBuilder generatedMethodBody = new StringBuilder();
+        generatedMethodBody.append("{").append("\n");
         generatedMethodBody.append("long oldSize$$$MySafe$$$ = UnsafeDelegator.beforeReallocateMemory($1);").append("\n");
         generatedMethodBody.append("long newAddress$$$MySafe$$$ = ").append(INVALID).append(";\n");
         generatedMethodBody.append("if (oldSize$$$MySafe$$$ != ").append(INVALID).append(") {").append("\n");
-        generatedMethodBody.append("newAddress$$$MySafe$$$ = ").append(actualMethodCallSignature.toString()).append("\n");
+        generatedMethodBody.append("\t").append("newAddress$$$MySafe$$$ = ").append(actualMethodCallSignature.toString()).append("\n");
         generatedMethodBody.append("}").append("\n");
         generatedMethodBody.append("UnsafeDelegator.afterReallocateMemory").
                                 append("(").
@@ -289,6 +352,7 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
                                 append(");").    
                             append("\n");
         generatedMethodBody.append("return newAddress$$$MySafe$$$;").append("\n");
+        generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
         
         clazz.addMethod(generatedMethod);

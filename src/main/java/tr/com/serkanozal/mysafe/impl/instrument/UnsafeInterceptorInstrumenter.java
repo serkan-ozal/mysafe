@@ -43,8 +43,8 @@ class UnsafeInterceptorInstrumenter implements UnsafeUsageInstrumenter {
                     @Override
                     public void visitMethodInsn(int opcode, String ownerClassName,
                             String methodName, String signature) {
-                        if ("sun/misc/Unsafe".equals(ownerClassName) && !USE_CUSTOM_MEMORY_MANAGEMENT) {  
-                            if ("allocateMemory".equals(methodName)) {
+                        if ("sun/misc/Unsafe".equals(ownerClassName)) {  
+                            if ("allocateMemory".equals(methodName) && !USE_CUSTOM_MEMORY_MANAGEMENT) {
                                 super.visitMethodInsn(
                                         Opcodes.INVOKESTATIC, 
                                         "tr/com/serkanozal/mysafe/impl/UnsafeDelegator",
