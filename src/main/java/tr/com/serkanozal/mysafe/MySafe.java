@@ -107,18 +107,25 @@ public final class MySafe {
     }
 
     /**
-     * Enables memory check on {@link sun.misc.Unsafe} calls 
-     * to prevent illegal memory access.
+     * Returns <tt>true</tt> if safe memory management (allocate/free/reallocate) 
+     * mode is enabled, otherwise returns <tt>false</tt>.
+     * 
+     * @return <code>true</tt> if safe memory management (allocate/free/reallocate) 
+     *         is enabled, otherwise <tt>false</tt>
      */
-    public static void enableSafeMode() {
-        UnsafeDelegator.enableSafeMode();
+    public static boolean isSafeMemoryManagementModeEnabled() {
+        return UnsafeDelegator.isSafeMemoryManagementModeEnabled();
     }
     
     /**
-     * Disables memory check on {@link sun.misc.Unsafe} calls.
+     * Returns <tt>true</tt> if safe memory access (read/write) 
+     * mode is enabled, otherwise returns <tt>false</tt>.
+     * 
+     * @return <code>true</tt> if safe memory access (read/write) 
+     *         is enabled, otherwise <tt>false</tt>
      */
-    public static void disableSafeMode() {
-        UnsafeDelegator.disableSafeMode();
+    public static boolean isSafeMemoryAccessModeEnabled() {
+        return UnsafeDelegator.isSafeMemoryAccessModeEnabled();
     }
     
     /**

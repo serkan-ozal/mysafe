@@ -30,7 +30,7 @@ import tr.com.serkanozal.mysafe.config.ReallocationPoint;
  * <pre>
  * There are 3 ways of running this demo (also <b>MySafe</b>):
  *      - Activate the <b>MySafe</b> by defining its classloader as system classloader 
- *        via `-Djava.system.class.loader=tr.com.serkanozal.mysafe.impl.classloader.UnsafeAwareClassLoader`
+ *        via `-Djava.system.class.loader=tr.com.serkanozal.mysafe.impl.classloader.MySafeClassLoader`
  *      - Activate the <b>MySafe</b> through Java agent (<b>Jillegal-Agent</b>) by using `sun.misc.Unsafe` instrumenter of <b>MySafe</b>
  *        via `-javaagent:<path_to_jillegal_agent>\<jillegal_agent_jar>="-p tr.com.serkanozal.mysafe.impl.processor.UnsafeProcessor"`.
  *        For example:
@@ -43,12 +43,11 @@ import tr.com.serkanozal.mysafe.config.ReallocationPoint;
 public class CustomMemoryManagementDemo {
 
     static {
-        System.setProperty("mysafe.enableSafeMode", "true");
+        System.setProperty("mysafe.enableSafeMemoryManagementMode", "true");
+        System.setProperty("mysafe.useCustomMemoryManagement", "true");
     }
 
     public static void main(String[] args) throws Exception {
-        
-        
         MySafe.youAreMine();
 
         // Demo code is run on another class.
@@ -145,20 +144,6 @@ public class CustomMemoryManagementDemo {
             // Read from valid memory
             memoryManager.UNSAFE.getInt(address);
             
-            try {
-                // Write to invalid memory
-                memoryManager.UNSAFE.putInt(address + 16, 100);
-            } catch (IllegalArgumentException e) {
-                e.printStackTrace();
-            }
-            
-            try {
-                // Read from invalid memory
-                memoryManager.UNSAFE.getInt(address + 16);
-            } catch (IllegalArgumentException e) {
-                e.printStackTrace();
-            }
-
             // Free allocated memory
             memoryManager.free(address);
 

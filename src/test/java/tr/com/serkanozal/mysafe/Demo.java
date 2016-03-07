@@ -23,7 +23,7 @@ import sun.misc.Unsafe;
  * <pre>
  * There are 3 ways of running this demo (also <b>MySafe</b>):
  *      - Activate the <b>MySafe</b> by defining its classloader as system classloader 
- *        via `-Djava.system.class.loader=tr.com.serkanozal.mysafe.impl.classloader.UnsafeAwareClassLoader`
+ *        via `-Djava.system.class.loader=tr.com.serkanozal.mysafe.impl.classloader.MySafeClassLoader`
  *      - Activate the <b>MySafe</b> through Java agent (<b>Jillegal-Agent</b>) by using `sun.misc.Unsafe` instrumenter of <b>MySafe</b>
  *        via `-javaagent:<path_to_jillegal_agent>\<jillegal_agent_jar>="-p tr.com.serkanozal.mysafe.impl.processor.UnsafeProcessor"`.
  *        For example:
@@ -36,7 +36,8 @@ import sun.misc.Unsafe;
 public class Demo {
 
     static {
-        System.setProperty("mysafe.enableSafeMode", "true");
+        System.setProperty("mysafe.enableSafeMemoryManagementMode", "true");
+        System.setProperty("mysafe.enableSafeMemoryAccessMode", "true");
     }
     
     public static void main(String[] args) throws Exception {

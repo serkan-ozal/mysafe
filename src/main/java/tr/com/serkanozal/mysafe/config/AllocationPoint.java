@@ -27,7 +27,8 @@ import java.lang.annotation.Target;
  * <p>
  * Annotated method must be in the form of 
  * <tt>long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)</tt>
- * by given parameter order.
+ * as given parameter order by default.
+ * Order of <tt>size</tt> parameter can be configured via {@link #sizeParameterOrder()}.
  * As you can see, 
  * <ul>
  *  <li>There might be other parameters rather than <tt>size</tt>.</li>
@@ -45,4 +46,12 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface AllocationPoint {
 
+    /**
+     * Order of the <tt>size</tt> parameter. 
+     * Note that parameter order starts from <tt>1</tt>.
+     * 
+     * @return the order of the <tt>size</tt> parameter
+     */
+    int sizeParameterOrder() default AllocationPointConfig.DEFAULT_SIZE_PARAMETER_ORDER;
+	
 }

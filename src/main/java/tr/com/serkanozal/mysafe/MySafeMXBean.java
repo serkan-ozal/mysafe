@@ -40,14 +40,21 @@ public interface MySafeMXBean {
     AllocatedMemoryInfo[] getAllocatedMemories();
     
     /**
-     * Enables memory check on {@link sun.misc.Unsafe} calls 
-     * to prevent illegal memory access.
+     * Returns <tt>true</tt> if safe memory management (allocate/free/reallocate) 
+     * mode is enabled, otherwise returns <tt>false</tt>.
+     * 
+     * @return <code>true</tt> if safe memory management (allocate/free/reallocate) 
+     *         is enabled, otherwise <tt>false</tt>
      */
-    void enableSafeMode();
+    boolean isSafeMemoryManagementModeEnabled();
     
     /**
-     * Disables memory check on {@link sun.misc.Unsafe} calls.
+     * Returns <tt>true</tt> if safe memory access (read/write) 
+     * mode is enabled, otherwise returns <tt>false</tt>.
+     * 
+     * @return <code>true</tt> if safe memory access (read/write) 
+     *         is enabled, otherwise <tt>false</tt>
      */
-    void disableSafeMode();
+    boolean isSafeMemoryAccessModeEnabled();
     
 }

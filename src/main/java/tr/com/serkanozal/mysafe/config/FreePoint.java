@@ -27,7 +27,8 @@ import java.lang.annotation.Target;
  * <p>
  * Annotated method must be in the form of 
  * <tt>void $YOUR_FREE_METHOD_NAME$(long address, ...)</tt>
- * by given parameter order.
+ * as given parameter order by default.
+ * Order of <tt>address</tt> parameter can be configured via {@link #addressParameterOrder()}.
  * As you can see, 
  * <ul>
  *  <li>There might be other parameters rather than <tt>address</tt>.</li>
@@ -45,4 +46,12 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface FreePoint {
 
+    /**
+     * Order of the <tt>address</tt> parameter. 
+     * Note that parameter order starts from <tt>1</tt>.
+     * 
+     * @return the order of the <tt>address</tt> parameter
+     */
+    int addressParameterOrder() default FreePointConfig.DEFAULT_ADDRESS_PARAMETER_ORDER;
+	
 }

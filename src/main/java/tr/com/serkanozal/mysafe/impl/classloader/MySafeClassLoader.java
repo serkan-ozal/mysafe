@@ -32,12 +32,12 @@ import sun.misc.Resource;
 import tr.com.serkanozal.mysafe.impl.instrument.UnsafeUsageInstrumenter;
 import tr.com.serkanozal.mysafe.impl.util.ClasspathUtil;
 
-public class UnsafeAwareClassLoader extends URLClassLoader {
+public class MySafeClassLoader extends URLClassLoader {
 
     private final UnsafeUsageInstrumenter unsafeUsageInstrumenter;
     private final AtomicBoolean initialized;
 
-    public UnsafeAwareClassLoader(ClassLoader parent) {
+    public MySafeClassLoader(ClassLoader parent) {
         super(findClasspathUrls(parent), null);
         this.unsafeUsageInstrumenter = createUnsafeUsageInstrumenter(parent);
         try {

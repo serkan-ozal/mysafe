@@ -43,13 +43,13 @@ public class MySafeMXBeanImpl implements MySafeMXBean {
     }
 
     @Override
-    public void enableSafeMode() {
-        MySafe.enableSafeMode();
-    }
-
-    @Override
-    public void disableSafeMode() {
-        MySafe.disableSafeMode();
+    public boolean isSafeMemoryManagementModeEnabled() {
+        return MySafe.isSafeMemoryManagementModeEnabled();
     }
     
+    @Override
+    public boolean isSafeMemoryAccessModeEnabled() {
+        return MySafe.isSafeMemoryAccessModeEnabled();
+    }
+
 }

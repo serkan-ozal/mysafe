@@ -46,22 +46,36 @@ public final class UnsafeDelegator {
     private static final IllegalMemoryAccessListener ILLEGAL_MEMORY_ACCESS_LISTENER;
     private static final Unsafe DEFAULT_UNSAFE;
     private static final UnsafeMemoryAccessor UNSAFE_MEMORY_ACCESSOR;
-    private static final UnsafeLock UNSAFE_LOCK;
+    private static final MemoryAccessLock MEMORY_ACCESS_LOCK;
     private static Set<MemoryListener> LISTENERS = 
             Collections.newSetFromMap(new ConcurrentHashMap<MemoryListener, Boolean>());
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
     
-    private static volatile boolean registeredListenerExist = false;
-    private static volatile boolean safeModeEnabled = Boolean.getBoolean("mysafe.enableSafeMode");
-
+    private static final boolean SAFE_MEMORY_MANAGEMENT_MODE_ENABLED = 
+            Boolean.getBoolean("mysafe.enableSafeMemoryManagementMode");
+    private static final boolean SAFE_MEMORY_ACCESS_MODE_ENABLED;
+    private static volatile boolean REGISTERED_LISTENER_EXIST = false;
+   
     static {
         MySafe.initialize();
-        
+
+        boolean safeMemoryAccessModeEnabled = Boolean.getBoolean("mysafe.enableSafeMemoryAccessMode");
+        if (Boolean.getBoolean("mysafe.useCustomMemoryManagement")) {
+            if (safeMemoryAccessModeEnabled) {
+                LOGGER.warn("`Custom Memory Management` and `Safe Memory Access Mode` features cannot be used together. " + 
+                            "Since `Custom Memory Management` feature is enabled, " + 
+                            "`Safe Memory Access Mode` feature is being skipped ...");
+            }
+            SAFE_MEMORY_ACCESS_MODE_ENABLED = false;
+        } else {
+            SAFE_MEMORY_ACCESS_MODE_ENABLED = safeMemoryAccessModeEnabled;
+        }
+
         DEFAULT_UNSAFE = MySafe.getUnsafe(); 
         
         UNSAFE_MEMORY_ACCESSOR = UnsafeMemoryAccessorFactory.createUnsafeMemoryAccessor(DEFAULT_UNSAFE);
-        UNSAFE_LOCK = new UnsafeLock(DEFAULT_UNSAFE);
+        MEMORY_ACCESS_LOCK = new MemoryAccessLock(DEFAULT_UNSAFE);
         OBJECT_REFERENCE_SIZE = DEFAULT_UNSAFE.arrayIndexScale(Object[].class);
         
         String ALLOCATED_MEMORYStorageImplClassName = System.getProperty("mysafe.allocatedMemoryStorageImpl");
@@ -103,89 +117,86 @@ public final class UnsafeDelegator {
         throw new UnsupportedOperationException("Not avaiable for instantiation!");
     }
 
-    private static class UnsafeLock {
+    private static class MemoryAccessLock {
         
         private final Unsafe UNSAFE;
-        private final long UNSAFE_STATE_FIELD_OFFSET;
+        private final long MEMORY_STATE_FIELD_OFFSET;
         private final int MAX_CONCURRENCY_WINDOW = 4 * Runtime.getRuntime().availableProcessors();
         
-        private volatile int unsafeState = 0;
+        private volatile int memoryState = 0;
 
-        private UnsafeLock(Unsafe unsafe) {
+        private MemoryAccessLock(Unsafe unsafe) {
             try {
                 UNSAFE = unsafe;
-                UNSAFE_STATE_FIELD_OFFSET = UNSAFE.objectFieldOffset(UnsafeLock.class.getDeclaredField("unsafeState"));
+                MEMORY_STATE_FIELD_OFFSET = UNSAFE.objectFieldOffset(MemoryAccessLock.class.getDeclaredField("memoryState"));
             } catch (Throwable t) {
                 throw new IllegalStateException(t);
             }
         }
         
-        private void acquireFreeLock() {
+        private void acquireAccessLock() {
             for (;;) {
-                int currentState = unsafeState;
-                if (currentState <= -MAX_CONCURRENCY_WINDOW) {
-                    while (currentState < 0);
+                if (memoryState >= MAX_CONCURRENCY_WINDOW) {
+                    while (memoryState > 0);
                 }
-                if (currentState <= 0 && currentState > -MAX_CONCURRENCY_WINDOW) {
-                    if (UNSAFE.compareAndSwapInt(this, UNSAFE_STATE_FIELD_OFFSET, currentState, currentState - 1)) {
+                int currentState = memoryState;
+                if (currentState >= 0 && currentState < MAX_CONCURRENCY_WINDOW) {
+                    if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, currentState, currentState + 1)) {
                         break;
                     }
                 }
             }
         }
         
-        private void acquireAccessLock() {
+        private void acquireFreeLock() {
             for (;;) {
-                int currentState = unsafeState;
-                if (currentState >= MAX_CONCURRENCY_WINDOW) {
-                    while (currentState > 0);
+                if (memoryState <= -MAX_CONCURRENCY_WINDOW) {
+                    while (memoryState < 0);
                 }
-                if (currentState >= 0 && currentState < MAX_CONCURRENCY_WINDOW) {
-                    if (UNSAFE.compareAndSwapInt(this, UNSAFE_STATE_FIELD_OFFSET, currentState, currentState + 1)) {
+                int currentState = memoryState;
+                if (currentState <= 0 && currentState > -MAX_CONCURRENCY_WINDOW) {
+                    if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, currentState, currentState - 1)) {
                         break;
                     }
+                }
+            }
+        }
+
+        private void releaseAccessLock() {
+            for (;;) {
+                int currentState = memoryState;
+                assert currentState > 0 : "Current state must be negative while releasing access lock but it is " + currentState;
+                if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, currentState, currentState - 1)) {
+                    break;
                 }
             }
         }
         
         private void releaseFreeLock() {
             for (;;) {
-                int currentState = unsafeState;
-                if (UNSAFE.compareAndSwapInt(this, UNSAFE_STATE_FIELD_OFFSET, currentState, currentState + 1)) {
+                int currentState = memoryState;
+            	assert currentState < 0 : "Current state must be negative while releasing free lock but it is " + currentState;
+                if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, currentState, currentState + 1)) {
                     break;
                 }
             }
         }
-        
-        private void releaseAccessLock() {
-            for (;;) {
-                int currentState = unsafeState;
-                if (UNSAFE.compareAndSwapInt(this, UNSAFE_STATE_FIELD_OFFSET, currentState, currentState - 1)) {
-                    break;
-                }
-            }
-        }
-        
     }
 
     //////////////////////////////////////////////////////////////////////////
 
-    public static boolean isSafeModeEnabled() {
-        return safeModeEnabled;
+    public static boolean isSafeMemoryManagementModeEnabled() {
+        return SAFE_MEMORY_MANAGEMENT_MODE_ENABLED;
     }
     
-    public static void enableSafeMode() {
-        safeModeEnabled = true;
-    }
-    
-    public static void disableSafeMode() {
-        safeModeEnabled = false;
+    public static boolean isSafeMemoryAccessModeEnabled() {
+        return SAFE_MEMORY_ACCESS_MODE_ENABLED;
     }
     
     //////////////////////////////////////////////////////////////////////////
 
     public static void beforeAllocateMemory(long size) {
-        if (registeredListenerExist) {
+        if (REGISTERED_LISTENER_EXIST) {
             for (MemoryListener listener : LISTENERS) {
                 listener.beforeAllocateMemory(size);
             }
@@ -199,7 +210,7 @@ public final class UnsafeDelegator {
     public static void afterAllocateMemory(long size, long address) {
         ALLOCATED_MEMORY_STORAGE.put(address, size);
         ALLOCATED_MEMORY.addAndGet(size);
-        if (registeredListenerExist) {
+        if (REGISTERED_LISTENER_EXIST) {
             for (MemoryListener listener : LISTENERS) {
                 listener.afterAllocateMemory(address, size);
             }
@@ -220,7 +231,7 @@ public final class UnsafeDelegator {
     //////////////////////////////////////////////////////////////////////////
     
     public static long beforeFreeMemory(long address) {
-        if (registeredListenerExist) {
+        if (REGISTERED_LISTENER_EXIST) {
             for (MemoryListener listener : LISTENERS) {
                 listener.beforeFreeMemory(address);
             }
@@ -229,14 +240,14 @@ public final class UnsafeDelegator {
     }
     
     private static void doFreeMemory(Unsafe unsafe, long address) {
-        if (safeModeEnabled) {
-            UNSAFE_LOCK.acquireFreeLock();
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+            MEMORY_ACCESS_LOCK.acquireFreeLock();
         }    
         try {
             unsafe.freeMemory(address);
         } finally {
-            if (safeModeEnabled) {
-                UNSAFE_LOCK.acquireFreeLock();
+            if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+                MEMORY_ACCESS_LOCK.releaseFreeLock();
             }     
         }
     }
@@ -244,7 +255,7 @@ public final class UnsafeDelegator {
     public static void afterFreeMemory(long address, long size) {
         if (size != INVALID) {
             ALLOCATED_MEMORY.addAndGet(-size);
-            if (registeredListenerExist) {
+            if (REGISTERED_LISTENER_EXIST) {
                 for (MemoryListener listener : LISTENERS) {
                     listener.afterFreeMemory(address, size, true);
                 }
@@ -253,10 +264,10 @@ public final class UnsafeDelegator {
                 LOGGER.debug("Free memory at address " + String.format("0x%016x", address));
             }    
         } else {
-            if (safeModeEnabled) {
+            if (SAFE_MEMORY_MANAGEMENT_MODE_ENABLED) {
                 String msg = "Tried to free unallocated (or out of the record) memory at address " + 
                         String.format("0x%016x", address);
-                if (registeredListenerExist) {
+                if (REGISTERED_LISTENER_EXIST) {
                     for (MemoryListener listener : LISTENERS) {
                         listener.afterFreeMemory(address, INVALID, false);
                     }
@@ -267,7 +278,7 @@ public final class UnsafeDelegator {
                 LOGGER.error(msg); 
                 throw new IllegalArgumentException(msg);
             } else {
-                if (registeredListenerExist) {
+                if (REGISTERED_LISTENER_EXIST) {
                     for (MemoryListener listener : LISTENERS) {
                         listener.afterFreeMemory(address, INVALID, false);
                     }
@@ -282,7 +293,7 @@ public final class UnsafeDelegator {
             doFreeMemory(unsafe, address);
             afterFreeMemory(address, size);
         } else {
-            if (!safeModeEnabled) {
+            if (!SAFE_MEMORY_MANAGEMENT_MODE_ENABLED) {
                 String msg = "Trying to free unallocated (or out of the record) memory at address " + 
                              String.format("0x%016x", address);
                 LOGGER.warn(msg);
@@ -298,7 +309,7 @@ public final class UnsafeDelegator {
     public static long beforeReallocateMemory(long oldAddress) {
         long oldSize = ALLOCATED_MEMORY_STORAGE.remove(oldAddress);
         if (oldSize != INVALID) {
-            if (registeredListenerExist) {
+            if (REGISTERED_LISTENER_EXIST) {
                 for (MemoryListener listener : LISTENERS) {
                     listener.beforeReallocateMemory(oldAddress, oldSize);
                 }
@@ -308,14 +319,14 @@ public final class UnsafeDelegator {
     }
     
     private static long doReallocateMemory(Unsafe unsafe, long oldAddress, long newSize) {
-        if (safeModeEnabled) {
-            UNSAFE_LOCK.acquireFreeLock();
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+            MEMORY_ACCESS_LOCK.acquireFreeLock();
         }   
         try {
             return unsafe.reallocateMemory(oldAddress, newSize);
         } finally {
-            if (safeModeEnabled) {
-                UNSAFE_LOCK.releaseFreeLock();
+            if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+                MEMORY_ACCESS_LOCK.releaseFreeLock();
             }
         }
     }
@@ -325,7 +336,7 @@ public final class UnsafeDelegator {
         if (oldSize != INVALID) {
             ALLOCATED_MEMORY_STORAGE.put(newAddress, newSize);
             ALLOCATED_MEMORY.addAndGet(newSize - oldSize);
-            if (registeredListenerExist) {
+            if (REGISTERED_LISTENER_EXIST) {
                 for (MemoryListener listener : LISTENERS) {
                     listener.afterReallocateMemory(oldAddress, oldSize, newAddress, newSize, true);
                 }
@@ -336,10 +347,10 @@ public final class UnsafeDelegator {
                              " to address " + String.format("0x%016x", newAddress) + " with size of " + newSize);
             }  
         }  else {
-            if (safeModeEnabled) {
+            if (SAFE_MEMORY_MANAGEMENT_MODE_ENABLED) {
                 String msg = "Tried to reallocate unallocated (or out of the record) memory at address " + 
                              String.format("0x%016x", oldAddress) + " with new size " + newSize;
-                if (registeredListenerExist) {
+                if (REGISTERED_LISTENER_EXIST) {
                     for (MemoryListener listener : LISTENERS) {
                         listener.beforeReallocateMemory(oldAddress, INVALID);
                     }
@@ -350,7 +361,7 @@ public final class UnsafeDelegator {
                 LOGGER.error(msg); 
                 throw new IllegalArgumentException(msg);
             } else {
-                if (registeredListenerExist) {
+                if (REGISTERED_LISTENER_EXIST) {
                     for (MemoryListener listener : LISTENERS) {
                         listener.afterReallocateMemory(oldAddress, INVALID, newAddress, newSize, false);
                     }
@@ -367,7 +378,7 @@ public final class UnsafeDelegator {
             afterReallocateMemory(oldAddress, oldSize, newAddress, newSize);
 
         } else {
-            if (!safeModeEnabled) {
+            if (!SAFE_MEMORY_MANAGEMENT_MODE_ENABLED) {
                 String msg = "Trying to reallocate unallocated (or out of the record) memory at address " + 
                              String.format("0x%016x", oldAddress) + " with new size " + newSize;
                 LOGGER.warn(msg);
@@ -427,22 +438,22 @@ public final class UnsafeDelegator {
     
     public static synchronized void registerUnsafeListener(MemoryListener listener) {
         LISTENERS.add(listener);
-        registeredListenerExist = true;
+        REGISTERED_LISTENER_EXIST = true;
     }
     
     public static synchronized void deregisterUnsafeListener(MemoryListener listener) {
         LISTENERS.remove(listener);
-        registeredListenerExist = !LISTENERS.isEmpty();
+        REGISTERED_LISTENER_EXIST = !LISTENERS.isEmpty();
     }
     
     //////////////////////////////////////////////////////////////////////////
     
     private static void checkMemoryAccess(long address, long size, 
             IllegalMemoryAccessListener.MemoryAccessType memoryAccessType) {
-        if (safeModeEnabled) {
-            UNSAFE_LOCK.acquireAccessLock();
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+            MEMORY_ACCESS_LOCK.acquireAccessLock();
             if (!ALLOCATED_MEMORY_STORAGE.contains(address, size)) {
-                UNSAFE_LOCK.releaseAccessLock();
+                MEMORY_ACCESS_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             address, size,  memoryAccessType);
@@ -455,10 +466,10 @@ public final class UnsafeDelegator {
     }
     
     private static void checkMemoryAccess(long sourceAddress, long destinationAddress, long size) {
-        if (safeModeEnabled) {
-            UNSAFE_LOCK.acquireAccessLock();
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+            MEMORY_ACCESS_LOCK.acquireAccessLock();
             if (!ALLOCATED_MEMORY_STORAGE.contains(sourceAddress, size)) {
-                UNSAFE_LOCK.releaseAccessLock();
+                MEMORY_ACCESS_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             sourceAddress, size,  READ);
@@ -469,7 +480,7 @@ public final class UnsafeDelegator {
                 
             }
             if (!ALLOCATED_MEMORY_STORAGE.contains(destinationAddress, size)) {
-                UNSAFE_LOCK.releaseAccessLock();
+                MEMORY_ACCESS_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             destinationAddress, size,  WRITE);
@@ -482,17 +493,17 @@ public final class UnsafeDelegator {
     }
     
     private static void onReturnMemoryAccess() {
-        if (safeModeEnabled) {
-            UNSAFE_LOCK.releaseAccessLock();
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+            MEMORY_ACCESS_LOCK.releaseAccessLock();
         }    
     }
     
     private static void checkMemoryAccess(Object o, long offset, long size,
             IllegalMemoryAccessListener.MemoryAccessType memoryAccessType) {
-        if (safeModeEnabled && o == null) {
-            UNSAFE_LOCK.acquireAccessLock();
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && o == null) {
+            MEMORY_ACCESS_LOCK.acquireAccessLock();
             if (!ALLOCATED_MEMORY_STORAGE.contains(offset, size)) {
-                UNSAFE_LOCK.releaseAccessLock();
+                MEMORY_ACCESS_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             offset, size, memoryAccessType);
@@ -504,12 +515,18 @@ public final class UnsafeDelegator {
         }
     }
     
+    private static void onReturnMemoryAccess(Object o) {
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && o == null) {
+            MEMORY_ACCESS_LOCK.releaseAccessLock();
+        }
+    }
+    
     private static void checkMemoryAccess(Object sourceObject, long sourceOffset, 
             Object destinationObject, long destinationOffset, long size) {
-        if (safeModeEnabled && sourceObject == null && destinationObject == null) {
-            UNSAFE_LOCK.acquireAccessLock();
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && sourceObject == null && destinationObject == null) {
+            MEMORY_ACCESS_LOCK.acquireAccessLock();
             if (!ALLOCATED_MEMORY_STORAGE.contains(sourceOffset, size)) {
-                UNSAFE_LOCK.releaseAccessLock();
+                MEMORY_ACCESS_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             sourceOffset, size, READ);
@@ -519,7 +536,7 @@ public final class UnsafeDelegator {
                             "at address " + String.format("0x%016x", sourceOffset) + " with size " + size);
             }
             if (!ALLOCATED_MEMORY_STORAGE.contains(destinationOffset, size)) {
-                UNSAFE_LOCK.releaseAccessLock();
+                MEMORY_ACCESS_LOCK.releaseAccessLock();
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             destinationOffset, size, WRITE);
@@ -530,13 +547,13 @@ public final class UnsafeDelegator {
             }
         }
     }
-    
-    private static void onReturnMemoryAccess(Object o) {
-        if (safeModeEnabled && o == null) {
-            UNSAFE_LOCK.releaseAccessLock();
+
+    private static void onReturnMemoryAccess(Object sourceObject, Object destinationObject) {
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && sourceObject == null && destinationObject == null) {
+            MEMORY_ACCESS_LOCK.releaseAccessLock();
         }
     }
-
+    
     //////////////////////////////////////////////////////////////////////////
     
     @Deprecated
@@ -1254,7 +1271,7 @@ public final class UnsafeDelegator {
         try {
             UNSAFE_MEMORY_ACCESSOR.copyMemory(unsafe, srcBase, srcOffset, destBase, destOffset, bytes);
         } finally {
-            onReturnMemoryAccess();
+            onReturnMemoryAccess(srcBase, destBase);
         }
     }
     

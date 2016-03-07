@@ -19,13 +19,17 @@ import static tr.com.serkanozal.mysafe.AllocatedMemoryStorage.INVALID;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
 import tr.com.serkanozal.mysafe.config.AllocationPoint;
+import tr.com.serkanozal.mysafe.config.AllocationPointConfig;
 import tr.com.serkanozal.mysafe.config.FreePoint;
+import tr.com.serkanozal.mysafe.config.FreePointConfig;
 import tr.com.serkanozal.mysafe.config.ReallocationPoint;
+import tr.com.serkanozal.mysafe.config.ReallocationPointConfig;
 import javassist.CannotCompileException;
 import javassist.ClassPool;
 import javassist.CtClass;
@@ -37,9 +41,12 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
     private final boolean USE_CUSTOM_MEMORY_MANAGEMENT = 
             Boolean.getBoolean("mysafe.useCustomMemoryManagement");
     private final ClassPool CP = ClassPool.getDefault();
-    private final Map<String, String> CONFIGURED_ALLOCATION_POINTS = new HashMap<String, String>();
-    private final Map<String, String> CONFIGURED_FREE_POINTS = new HashMap<String, String>();
-    private final Map<String, String> CONFIGURED_REALLOCATION_POINTS = new HashMap<String, String>();
+    private final Map<String, AllocationPointConfig> CONFIGURED_ALLOCATION_POINTS = 
+            new HashMap<String, AllocationPointConfig>();
+    private final Map<String, FreePointConfig> CONFIGURED_FREE_POINTS = 
+            new HashMap<String, FreePointConfig>();
+    private final Map<String, ReallocationPointConfig> CONFIGURED_REALLOCATION_POINTS = 
+            new HashMap<String, ReallocationPointConfig>();
     
     CustomMemoryManagementInstrumenter() {
         if (USE_CUSTOM_MEMORY_MANAGEMENT) {
@@ -58,23 +65,59 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
                 for (String propName : mySafeConfigProps.stringPropertyNames()) {
                     String propValue = mySafeConfigProps.getProperty(propName);
                     String[] propNameParts = propName.split("#");
-                    if (propNameParts.length != 2) {
+                    if (propNameParts.length < 2) {
                         System.err.println("Invalid memory management point name: " + propName + 
-                                           ". It must be in the form of \"<class_name>#<method_name>\".");
+                                           ". It must be in the form of \"<class_name>#<method_name>(#<optional-config>)*\".");
                         continue;
                     }
                     String className = propNameParts[0];
                     String methodName = propNameParts[1];
                     if ("ALLOCATION_POINT".equals(propValue)) {
-                        CONFIGURED_ALLOCATION_POINTS.put(className, methodName);
+                        if (propNameParts.length > 3) {
+                            System.err.println("Invalid allocation point definition: " + propName + 
+                                               ". It must be in the form of \"<class_name>#<method_name>(#<size_parameter_order>)?\".");
+                            continue;
+                        }
+                        AllocationPointConfig allocationPointConfig = null;
+                        if (propNameParts.length == 2) {
+                            allocationPointConfig = new AllocationPointConfig();
+                        } else {
+                            allocationPointConfig = new AllocationPointConfig(Integer.parseInt(propNameParts[2]));
+                        }
+                        CONFIGURED_ALLOCATION_POINTS.put(className + "#" + methodName, allocationPointConfig);
                         System.out.println("Custom memory allocation point: " + 
                                            "className=" + className + ", methodName=" + methodName);
                     } else if ("FREE_POINT".equals(propValue)) {
-                        CONFIGURED_FREE_POINTS.put(className, methodName);
+                        if (propNameParts.length > 3) {
+                            System.err.println("Invalid free point definition: " + propName + 
+                                               ". It must be in the form of \"<class_name>#<method_name>(#<address_parameter_order>)?\".");
+                            continue;
+                        }
+                        FreePointConfig freePointConfig = null;
+                        if (propNameParts.length == 2) {
+                            freePointConfig = new FreePointConfig();
+                        } else {
+                            freePointConfig = new FreePointConfig(Integer.parseInt(propNameParts[2]));
+                        }
+                        CONFIGURED_FREE_POINTS.put(className + "#" + methodName, freePointConfig);
                         System.out.println("Custom memory free point: " + 
                                            "className=" + className + ", methodName=" + methodName);
                     } else if ("REALLOCATION_POINT".equals(propValue)) {
-                        CONFIGURED_REALLOCATION_POINTS.put(className, methodName);
+                        if (propNameParts.length > 4) {
+                            System.err.println("Invalid reallocation point definition: " + propName + ". It must be in the form of " + 
+                                               "\"<class_name>#<method_name>(#<old_address_parameter_order>(#<new_size_parameter_order>)?)?\".");
+                            continue;
+                        }
+                        ReallocationPointConfig reallocationPointConfig = null;
+                        if (propNameParts.length == 2) {
+                            reallocationPointConfig = new ReallocationPointConfig();
+                        } else if (propNameParts.length == 3) {
+                            reallocationPointConfig = new ReallocationPointConfig(Integer.parseInt(propNameParts[2]));
+                        } else {
+                            reallocationPointConfig = new ReallocationPointConfig(Integer.parseInt(propNameParts[2]),
+                                                                                  Integer.parseInt(propNameParts[3]));
+                        }
+                        CONFIGURED_REALLOCATION_POINTS.put(className + "#" + methodName, reallocationPointConfig);
                         System.out.println("Custom memory reallocation point: " + 
                                            "className=" + className + ", methodName=" + methodName);
                     } else {
@@ -99,18 +142,40 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
             try {
                 CtClass clazz = CP.makeClass(new ByteArrayInputStream(classData));
                 for (CtMethod method : clazz.getDeclaredMethods()) {
-                    if (method.getName().equals(CONFIGURED_ALLOCATION_POINTS.get(clazz.getName())) 
+                    AllocationPointConfig allocationPointConfig = null;
+                    Object allocationPoint = null;
+                    FreePointConfig freePointConfig = null;
+                    Object freePoint = null;
+                    ReallocationPointConfig reallocationPointConfig = null;
+                    Object reallocationPoint = null;
+                    if ((allocationPointConfig = CONFIGURED_ALLOCATION_POINTS.get(clazz.getName() + "#" + method.getName())) != null 
                         || 
-                        method.hasAnnotation(AllocationPoint.class)) {
-                        instrumentAllocationPoint(clazz, method);
-                    } else if (method.getName().equals(CONFIGURED_FREE_POINTS.get(clazz.getName()))
-                               ||
-                               method.hasAnnotation(FreePoint.class)) {
-                        instrumentFreePoint(clazz, method);
-                    } else if (method.getName().equals(CONFIGURED_REALLOCATION_POINTS.get(clazz.getName()))
-                               ||
-                               method.hasAnnotation(ReallocationPoint.class)) {
-                        instrumentReallocationPoint(clazz, method);
+                        (allocationPoint = method.getAnnotation(AllocationPoint.class)) != null) {
+                        if (allocationPointConfig == null) {
+                            Method m = allocationPoint.getClass().getMethod("sizeParameterOrder");
+                            allocationPointConfig = new AllocationPointConfig((Integer) m.invoke(allocationPoint));
+                        }
+                        instrumentAllocationPoint(clazz, method, allocationPointConfig);
+                    } else if ((freePointConfig = CONFIGURED_FREE_POINTS.get(clazz.getName() + "#" + method.getName())) != null 
+                               || 
+                               (freePoint = method.getAnnotation(FreePoint.class)) != null) {
+                        if (freePointConfig == null) {
+                            Method m = freePoint.getClass().getMethod("addressParameterOrder");
+                            freePointConfig = new FreePointConfig((Integer) m.invoke(freePoint));
+                        }
+                        instrumentFreePoint(clazz, method, freePointConfig);
+                    } else if ((reallocationPointConfig = CONFIGURED_REALLOCATION_POINTS.get(clazz.getName() + "#" + method.getName())) != null 
+                               || 
+                               (reallocationPoint = method.getAnnotation(ReallocationPoint.class)) != null) {
+                        if (reallocationPointConfig == null) {
+                            Class<?> cls = reallocationPoint.getClass();
+                            Method m1 = cls.getMethod("oldAddressParameterOrder");
+                            Method m2 = cls.getMethod("newSizeParameterOrder");
+                            reallocationPointConfig = 
+                                    new ReallocationPointConfig((Integer) m1.invoke(reallocationPoint), 
+                                                                (Integer) m2.invoke(reallocationPoint));
+                        }
+                        instrumentReallocationPoint(clazz, method, reallocationPointConfig);
                     }
                 }
                 return clazz.toBytecode();
@@ -126,34 +191,27 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
         }    
     }
 
-    private void instrumentAllocationPoint(CtClass clazz, CtMethod method) 
+    private void instrumentAllocationPoint(CtClass clazz, CtMethod method, AllocationPointConfig allocationPointConfig) 
             throws NotFoundException, CannotCompileException {
-        /*
-         * Annotated method must be in the form of 
-         * "long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)"
-         * by given parameter order.
-         * As you can see, 
-         *      - There might be other parameters rather than "size".
-         *      - Return type can only be "long" and it must be allocated address.
-         */
-        
         CtClass returnType = method.getReturnType();
         CtClass[] paramTypes = method.getParameterTypes();
+        int sizeParamOrder = allocationPointConfig.sizeParameterOrder;
         
-        if (paramTypes.length < 1) {
-            throw new IllegalStateException("Parameter count must be >= 1. " +
-                                            "Annotated method must be in the form of " + 
-                                            "\"long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)\"");
+        if (sizeParamOrder < 1 || sizeParamOrder > paramTypes.length) {
+            throw new IllegalStateException("Order of the `size` parameter, which is " + sizeParamOrder + ", must be positive number " +
+                                            "and it cannot be bigger than parameter count which is " + paramTypes.length + ".");
         }
         if (!long.class.getName().equals(returnType.getName())) {
             throw new IllegalStateException("Return must be \"long\" and it must be allocated memory address. " +
                                             "Annotated method must be in the form of " + 
-                                            "\"long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)\"");
+                                            "\"long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)\" by default " + 
+                                            "and order of `size` parameter can be configured.");
         }
-        if (!long.class.getName().equals(paramTypes[0].getName())) {
-            throw new IllegalStateException("First parameter must be long and it must be allocation size. " +
+        if (!long.class.getName().equals(paramTypes[sizeParamOrder - 1].getName())) {
+            throw new IllegalStateException("Size parameter must be long and it must be allocation size. " +
                                             "Annotated method must be in the form of " + 
-                                            "\"long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)\"");
+                                            "\"long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)\" by default " + 
+                                            "and order of `size` parameter can be configured.");
         }
 
         String methodName = method.getName();
@@ -185,11 +243,12 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
             afterAllocateMemory(size, address);
             return address; 
         */
+        
         StringBuilder generatedMethodBody = new StringBuilder();
         generatedMethodBody.append("{").append("\n");
-        generatedMethodBody.append("UnsafeDelegator.beforeAllocateMemory($1);").append("\n");
+        generatedMethodBody.append("UnsafeDelegator.beforeAllocateMemory($").append(sizeParamOrder).append(");").append("\n");
         generatedMethodBody.append("long address$$$MySafe$$$ = ").append(actualMethodCallSignature.toString()).append("\n");
-        generatedMethodBody.append("UnsafeDelegator.afterAllocateMemory($1, address$$$MySafe$$$);").append("\n");
+        generatedMethodBody.append("UnsafeDelegator.afterAllocateMemory($").append(sizeParamOrder).append(", address$$$MySafe$$$);").append("\n");
         generatedMethodBody.append("return address$$$MySafe$$$;").append("\n");
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
@@ -197,35 +256,28 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
         clazz.addMethod(generatedMethod);
     }
     
-    private void instrumentFreePoint(CtClass clazz, CtMethod method) 
+    private void instrumentFreePoint(CtClass clazz, CtMethod method, FreePointConfig freePointConfig) 
             throws NotFoundException, CannotCompileException {
-        /*
-         * Annotated method must be in the form of 
-         * "* $YOUR_FREE_METHOD_NAME$(long address, ...)"
-         * by given parameter order.
-         * As you can see, 
-         *      - There might be other parameters rather than "address".
-         *      - Return type can only be "void".
-         */
-        
         CtClass returnType = method.getReturnType();
         CtClass[] paramTypes = method.getParameterTypes();
         boolean returnsValue = null != returnType && !void.class.getName().equals(returnType.getName());
+        int addressParamOrder = freePointConfig.addressParameterOrder;
         
-        if (paramTypes.length < 1) {
-            throw new IllegalStateException("Parameter count must be >= 1. " +
-                                            "Annotated method must be in the form of " + 
-                                            "\"void $YOUR_FREE_METHOD_NAME$(long address, ...)\"");
+        if (addressParamOrder < 1 || addressParamOrder > paramTypes.length) {
+            throw new IllegalStateException("Order of the `address` parameter, which is " + addressParamOrder + ", must be positive number " +
+                                            "and it cannot be bigger than parameter count which is " + paramTypes.length + ".");
         }
         if (returnsValue) {
             throw new IllegalStateException("Return type must be \"void\". " +
                                             "Annotated method must be in the form of " + 
-                                            "\"void $YOUR_FREE_METHOD_NAME$(long address, ...)\"");
+                                            "\"void $YOUR_FREE_METHOD_NAME$(long address, ...)\" by default " + 
+                                            "and order of the `address` parameter can be configured.");
         }
-        if (!long.class.getName().equals(paramTypes[0].getName())) {
+        if (!long.class.getName().equals(paramTypes[addressParamOrder - 1].getName())) {
             throw new IllegalStateException("First parameter must be long and it must be address. " +
                                             "Annotated method must be in the form of " + 
-                                            "\"void $YOUR_FREE_METHOD_NAME$(long address, ...)\"");
+                                            "\"void $YOUR_FREE_METHOD_NAME$(long address, ...)\" by default " + 
+                                            "and order of the `address` parameter can be configured.");
         }
         
         String methodName = method.getName();
@@ -260,47 +312,44 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
         */
         StringBuilder generatedMethodBody = new StringBuilder();
         generatedMethodBody.append("{").append("\n");
-        generatedMethodBody.append("long size$$$MySafe$$$ = UnsafeDelegator.beforeFreeMemory($1);").append("\n");
+        generatedMethodBody.append("long size$$$MySafe$$$ = UnsafeDelegator.beforeFreeMemory($").append(addressParamOrder).append(");").append("\n");
         generatedMethodBody.append("if (size$$$MySafe$$$ != ").append(INVALID).append(") {").append("\n");
         generatedMethodBody.append("\t").append(actualMethodCallSignature.toString()).append("\n");
         generatedMethodBody.append("}").append("\n");
-        generatedMethodBody.append("UnsafeDelegator.afterFreeMemory($1, size$$$MySafe$$$);").append("\n");
+        generatedMethodBody.append("UnsafeDelegator.afterFreeMemory($").append(addressParamOrder).append(", size$$$MySafe$$$);").append("\n");
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
         
         clazz.addMethod(generatedMethod);
     }
     
-    private void instrumentReallocationPoint(CtClass clazz, CtMethod method) 
+    private void instrumentReallocationPoint(CtClass clazz, CtMethod method, ReallocationPointConfig reallocationPointConfig) 
             throws NotFoundException, CannotCompileException {
-        /*
-         * Annotated method must be in the form of 
-         * "* $YOUR_REALLOCATION_METHOD_NAME$(long oldAddress, long newSize, ...)"
-         * by given parameter order.
-         * As you can see, 
-         *      - There might be other parameters rather than "oldAddress" and "newSize".
-         *      - Return type can only be "long" and it must be reallocated address.
-         */
-        
         CtClass returnType = method.getReturnType();
         CtClass[] paramTypes = method.getParameterTypes();
+        int oldAddressParamOrder = reallocationPointConfig.oldAddressParameterOrder;
+        int newSizeParamOrder = reallocationPointConfig.newSizeParameterOrder;
         
-        if (paramTypes.length < 2) {
-            throw new IllegalStateException("Parameter count must be >= 2. " +
-                                            "Annotated method must be in the form of " + 
-                                            "\"long $YOUR_REALLOCATION_METHOD_NAME$(long oldAddress, long newSize, ...)\"");
+        if (oldAddressParamOrder < 1 || oldAddressParamOrder > paramTypes.length
+            ||
+            newSizeParamOrder < 1 || newSizeParamOrder > paramTypes.length) {
+            throw new IllegalStateException("Orders of the `old address` and `new size` parameters, which are " + 
+                                            oldAddressParamOrder + " and " + newSizeParamOrder + ", must be positive number " +
+                                            "and they cannot be bigger than parameter count which is " + paramTypes.length + ".");
         }
         if (!long.class.getName().equals(returnType.getName())) {
             throw new IllegalStateException("Return must be \"long\" and it must be reallocated memory address. " +
                                             "Annotated method must be in the form of " + 
-                                            "\"long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)\"");
+                                            "\"long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)\" by default " + 
+                                            "and order of the `oldAddress` `newSize` parameters can be configured.");
         }
-        if (!long.class.getName().equals(paramTypes[0].getName()) 
+        if (!long.class.getName().equals(paramTypes[oldAddressParamOrder - 1].getName()) 
             ||
-            !long.class.getName().equals(paramTypes[1].getName())) {
+            !long.class.getName().equals(paramTypes[newSizeParamOrder - 1].getName())) {
             throw new IllegalStateException("First two parameters must be long and they must be old address and new size. " +
                                             "Annotated method must be in the form of " + 
-                                            "\"long $YOUR_REALLOCATION_METHOD_NAME$(long oldAddress, long newSize, ...)\"");
+                                            "\"long $YOUR_REALLOCATION_METHOD_NAME$(long oldAddress, long newSize, ...)\" by default " + 
+                                            "and order of the `oldAddress` `newSize` parameters can be configured.");
         }
         
         String methodName = method.getName();
@@ -337,17 +386,17 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
         */
         StringBuilder generatedMethodBody = new StringBuilder();
         generatedMethodBody.append("{").append("\n");
-        generatedMethodBody.append("long oldSize$$$MySafe$$$ = UnsafeDelegator.beforeReallocateMemory($1);").append("\n");
+        generatedMethodBody.append("long oldSize$$$MySafe$$$ = UnsafeDelegator.beforeReallocateMemory($").append(oldAddressParamOrder).append(");").append("\n");
         generatedMethodBody.append("long newAddress$$$MySafe$$$ = ").append(INVALID).append(";\n");
         generatedMethodBody.append("if (oldSize$$$MySafe$$$ != ").append(INVALID).append(") {").append("\n");
         generatedMethodBody.append("\t").append("newAddress$$$MySafe$$$ = ").append(actualMethodCallSignature.toString()).append("\n");
         generatedMethodBody.append("}").append("\n");
         generatedMethodBody.append("UnsafeDelegator.afterReallocateMemory").
                                 append("(").
-                                    append("$1, ").
+                                    append("$").append(oldAddressParamOrder).append(", ").
                                     append("oldSize$$$MySafe$$$, ").
                                     append("newAddress$$$MySafe$$$, ").
-                                    append("$2").
+                                    append("$").append(newSizeParamOrder).
                                 append(");").    
                             append("\n");
         generatedMethodBody.append("return newAddress$$$MySafe$$$;").append("\n");

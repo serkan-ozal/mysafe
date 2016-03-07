@@ -27,7 +27,9 @@ import java.lang.annotation.Target;
  * <p>
  * Annotated method must be in the form of 
  * <tt>long $YOUR_REALLOCATION_METHOD_NAME$(long oldAddress, long newSize, ...)</tt> 
- * by given parameter order.
+ * as given parameter order by default.
+ * Order of <tt>oldAddress</tt> and <tt>newSize</tt>parameters can be configured 
+ * via {@link #oldAddressParameterOrder()} and {@link #newSizeParameterOrder()}.
  * As you can see, 
  * <ul>
  *  <li>There might be other parameters rather than <tt>oldAddress</tt> and <tt>newSize</tt>.</li>
@@ -44,5 +46,21 @@ import java.lang.annotation.Target;
 @Target({ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ReallocationPoint {
+
+    /**
+     * Order of the <tt>old address</tt> parameter. 
+     * Note that parameter order starts from <tt>1</tt>.
+     * 
+     * @return the order of the <tt>old address</tt> parameter
+     */
+    int oldAddressParameterOrder() default ReallocationPointConfig.DEFAULT_OLD_ADDRESS_PARAMETER_ORDER;
+	
+    /**
+     * Order of the <tt>new size</tt> parameter. 
+     * Note that parameter order starts from <tt>1</tt>.
+     * 
+     * @return the order of the <tt>new size</tt> parameter
+     */
+    int newSizeParameterOrder() default ReallocationPointConfig.DEFAULT_NEW_SIZE_PARAMETER_ORDER;
 
 }
