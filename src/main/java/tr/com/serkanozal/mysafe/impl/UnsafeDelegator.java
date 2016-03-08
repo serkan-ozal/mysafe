@@ -20,10 +20,10 @@ import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Logger;
+import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 
 import sun.misc.Unsafe;
 import sun.reflect.Reflection;
@@ -52,10 +52,10 @@ public final class UnsafeDelegator {
     private static final MemoryAccessLock MEMORY_ACCESS_LOCK;
     private static Set<MemoryListener> LISTENERS = 
             Collections.newSetFromMap(new ConcurrentHashMap<MemoryListener, Boolean>());
-    private static final ConcurrentMap<Long, CallerInfo> CALLER_INFO_MAP =
-            new ConcurrentHashMap<Long, CallerInfo>(2 * Runtime.getRuntime().availableProcessors());
-    private static final ConcurrentMap<Long, Long> ALLOCATION_CALLER_INFO_MAP =
-            new ConcurrentHashMap<Long, Long>(2 * Runtime.getRuntime().availableProcessors());
+    private static final NonBlockingHashMapLong<CallerInfo> CALLER_INFO_MAP =
+            new NonBlockingHashMapLong<CallerInfo>(8);
+    private static final NonBlockingHashMapLong<CallerInfo> ALLOCATION_CALLER_INFO_MAP =
+            new NonBlockingHashMapLong<CallerInfo>(1024);
     private static final CallerFinder CALLER_FINDER;
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
@@ -102,7 +102,11 @@ public final class UnsafeDelegator {
                         ALLOCATED_MEMORYStorageImplClassName, e);
             }
         } else {
-            ALLOCATED_MEMORY_STORAGE = new DefaultAllocatedMemoryStorage();
+            if (safeMemoryAccessModeEnabled) {
+                ALLOCATED_MEMORY_STORAGE = new NavigatableAllocatedMemoryStorage();
+            } else {
+                ALLOCATED_MEMORY_STORAGE = new DefaultAllocatedMemoryStorage();
+            }    
         }
         
         String illegalMemoryAccessListenerImplClassName = System.getProperty("mysafe.illegalMemoryAccessListenerImpl");
@@ -214,9 +218,11 @@ public final class UnsafeDelegator {
         private static final int MAX_CALLER_DEPTH = 8;
         
         private final Class<?>[] callerClasses;
+        private final String threadName;
         
-        private CallerInfo(Class<?>[] callerClasses) {
+        private CallerInfo(Class<?>[] callerClasses, String threadName) {
             this.callerClasses = callerClasses;
+            this.threadName = threadName;
         }
         
     }
@@ -264,7 +270,7 @@ public final class UnsafeDelegator {
         return h ^ (h >>> 16);
     }
     
-    private static long getOrCreateCallerInfo(int skipCallerCount) {
+    private static CallerInfo getOrCreateCallerInfo(int skipCallerCount) {
         skipCallerCount++;
         long callerInfoKey = 0L;
         int i;
@@ -276,20 +282,29 @@ public final class UnsafeDelegator {
                 break;
             }
         }
-        if (CALLER_INFO_MAP.get(callerInfoKey) == null) {
+        String threadName = Thread.currentThread().getName();
+        callerInfoKey = calculateCallerKey(callerInfoKey, threadName.hashCode());
+        CallerInfo callerInfo = CALLER_INFO_MAP.get(callerInfoKey);
+        if (callerInfo == null) {
             Class<?>[] callerClasses = new Class<?>[i];
             for (int j = 0; j < i; j++) {
                 callerClasses[j] =  CALLER_FINDER.getCallerClass(skipCallerCount + j);
             }
-            CALLER_INFO_MAP.putIfAbsent(callerInfoKey, new CallerInfo(callerClasses));
+            CallerInfo newCallerInfo = new CallerInfo(callerClasses, threadName);
+            CallerInfo existingCallerInfo = CALLER_INFO_MAP.putIfAbsent(callerInfoKey, newCallerInfo);
+            if (existingCallerInfo == null) {
+                callerInfo = newCallerInfo;
+            } else {
+                callerInfo = existingCallerInfo;
+            }
         }
-        return callerInfoKey;
+        return callerInfo;
     }
     
     private static void saveCallerInfoOnAllocation(long address, int skipCallerCount) {
         skipCallerCount++;
-        long callerInfoKey = getOrCreateCallerInfo(skipCallerCount);
-        ALLOCATION_CALLER_INFO_MAP.put(address, callerInfoKey);
+        CallerInfo callerInfo = getOrCreateCallerInfo(skipCallerCount);
+        ALLOCATION_CALLER_INFO_MAP.put(address, callerInfo);
     }
     
     private static void deleteCallerInfoOnFree(long address) {
@@ -528,22 +543,19 @@ public final class UnsafeDelegator {
             @Override
             public void onAllocatedMemory(long address, long size) {
                 ps.println("Address     : " + String.format("0x%016x", address));
-                ps.println("Size        : " + size);
+                ps.println("Size        : " + size + " bytes");
                 ps.println("Dump        :");
                 dump(ps, unsafe, address, size);
                 if (CALLER_INFO_MONITORING_MODE_ENABLED) {
                     ps.println("Caller Info :");
-                    Long callerInfoKey = ALLOCATION_CALLER_INFO_MAP.get(address);
-                    if (callerInfoKey == null) {
+                    CallerInfo callerInfo = ALLOCATION_CALLER_INFO_MAP.get(address);
+                    if (callerInfo == null) {
                         ps.println("\tNo related caller info!");
                     } else {
-                        CallerInfo callerInfo = CALLER_INFO_MAP.get(callerInfoKey);
-                        if (callerInfo == null) {
-                            ps.println("\tNo caller info!");
-                        } else {
-                            for (Class<?> callerClass : callerInfo.callerClasses) {
-                                ps.println("\t- " + callerClass);
-                            }
+                        ps.println("\tCaller thread name : " + callerInfo.threadName);
+                        ps.println("\tCaller classes     : ");
+                        for (Class<?> callerClass : callerInfo.callerClasses) {
+                            ps.println("\t\t|- " + callerClass);
                         }
                     }
                 }

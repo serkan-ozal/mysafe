@@ -16,42 +16,40 @@
 package tr.com.serkanozal.mysafe.impl;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 
-class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
+class NavigatableAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
-    private final ConcurrentMap<Long, Long> allocatedMemories;
+    private final NavigableMap<Long, Long> allocatedMemories;
     
-    DefaultAllocatedMemoryStorage() {
-        this.allocatedMemories = new ConcurrentHashMap<Long, Long>(1024);
+    NavigatableAllocatedMemoryStorage() {
+        this.allocatedMemories = new ConcurrentSkipListMap<Long, Long>();
     }
 
     @Override
     public boolean contains(long address) {
-        for (Map.Entry<Long, Long> entry : allocatedMemories.entrySet()) {
-            long startAddress = entry.getKey();
-            long endAddress = startAddress + entry.getValue();
-            if (address >= startAddress && address <= endAddress) {
-                return true;
-            }
-        } 
-        return false;
+        Map.Entry<Long, Long> entry = allocatedMemories.floorEntry(address);
+        if (entry == null) {
+            return false;
+        }
+        long startAddress = entry.getKey();
+        long endAddress = startAddress + entry.getValue();
+        return address >= startAddress && address <= endAddress;
     }
     
     @Override
     public boolean contains(long address, long size) {
-        for (Map.Entry<Long, Long> entry : allocatedMemories.entrySet()) {
-            long startAddress = entry.getKey();
-            long endAddress = startAddress + entry.getValue();
-            if (address >= startAddress && (address + size) <= endAddress) {
-                return true;
-            }
+        Map.Entry<Long, Long> entry = allocatedMemories.floorEntry(address);
+        if (entry == null) {
+            return false;
         }
-        return false;
+        long startAddress = entry.getKey();
+        long endAddress = startAddress + entry.getValue();
+        return address >= startAddress && (address + size) <= endAddress;
     }
 
     @Override

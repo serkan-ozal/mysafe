@@ -3,7 +3,7 @@
   	<modelVersion>4.0.0</modelVersion>
   	<groupId>tr.com.serkanozal</groupId>
   	<artifactId>mysafe</artifactId>
-  	<version>1.2-SNAPSHOT</version>
+  	<version>2.0-SNAPSHOT</version>
     <name>MySafe</name>
     <url>https://github.com/serkan-ozal/mysafe</url>
     
@@ -21,6 +21,7 @@
 		<jillegal.agent.version>2.0</jillegal.agent.version>
 		<javassist.version>3.17.1-GA</javassist.version>
 		<asm.version>3.3.1</asm.version>
+		<high-scale-lib.version>1.1.4</high-scale-lib.version>
 		<log4j.version>1.2.17</log4j.version>
         <junit.version>4.11</junit.version>
 
@@ -73,6 +74,11 @@
 			<groupId>asm</groupId>
 			<artifactId>asm</artifactId>
 			<version>${asm.version}</version>
+		</dependency>
+		        <dependency>
+			<groupId>com.github.stephenc.high-scale-lib</groupId>
+			<artifactId>high-scale-lib</artifactId>
+			<version>${high-scale-lib.version}</version>
 		</dependency>
 		<dependency>
             <groupId>log4j</groupId>
