@@ -38,6 +38,7 @@ public class Demo {
     static {
         System.setProperty("mysafe.enableSafeMemoryManagementMode", "true");
         System.setProperty("mysafe.enableSafeMemoryAccessMode", "true");
+        System.setProperty("mysafe.enableCallerInfoMonitoringMode", "true");
     }
     
     public static void main(String[] args) throws Exception {

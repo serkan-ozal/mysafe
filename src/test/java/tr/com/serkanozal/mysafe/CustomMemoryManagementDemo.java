@@ -45,6 +45,7 @@ public class CustomMemoryManagementDemo {
     static {
         System.setProperty("mysafe.enableSafeMemoryManagementMode", "true");
         System.setProperty("mysafe.useCustomMemoryManagement", "true");
+        System.setProperty("mysafe.enableCallerInfoMonitoringMode", "true");
     }
 
     public static void main(String[] args) throws Exception {

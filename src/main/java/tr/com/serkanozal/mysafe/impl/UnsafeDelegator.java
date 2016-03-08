@@ -16,14 +16,17 @@
 package tr.com.serkanozal.mysafe.impl;
 
 import java.io.PrintStream;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Logger;
 
 import sun.misc.Unsafe;
+import sun.reflect.Reflection;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.IllegalMemoryAccessListener;
@@ -49,12 +52,19 @@ public final class UnsafeDelegator {
     private static final MemoryAccessLock MEMORY_ACCESS_LOCK;
     private static Set<MemoryListener> LISTENERS = 
             Collections.newSetFromMap(new ConcurrentHashMap<MemoryListener, Boolean>());
+    private static final ConcurrentMap<Long, CallerInfo> CALLER_INFO_MAP =
+            new ConcurrentHashMap<Long, CallerInfo>(2 * Runtime.getRuntime().availableProcessors());
+    private static final ConcurrentMap<Long, Long> ALLOCATION_CALLER_INFO_MAP =
+            new ConcurrentHashMap<Long, Long>(2 * Runtime.getRuntime().availableProcessors());
+    private static final CallerFinder CALLER_FINDER;
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
     
     private static final boolean SAFE_MEMORY_MANAGEMENT_MODE_ENABLED = 
             Boolean.getBoolean("mysafe.enableSafeMemoryManagementMode");
     private static final boolean SAFE_MEMORY_ACCESS_MODE_ENABLED;
+    private static final boolean CALLER_INFO_MONITORING_MODE_ENABLED =
+            Boolean.getBoolean("mysafe.enableCallerInfoMonitoringMode");
     private static volatile boolean REGISTERED_LISTENER_EXIST = false;
    
     static {
@@ -111,6 +121,20 @@ public final class UnsafeDelegator {
         } else {
             ILLEGAL_MEMORY_ACCESS_LISTENER = null;
         }
+        
+        CallerFinder callerFinder = null;
+        try {
+            Class<?> reflectionClass = Class.forName("sun.reflect.Reflection");
+            Method getCallerClassMethod = reflectionClass.getMethod("getCallerClass", int.class);
+            if (getCallerClassMethod != null) {
+                callerFinder = new ReflectionBasedCallerFinder();
+            } else {
+                callerFinder = new SecurityManagerBasedCallerFinder();
+            }
+        } catch (Throwable t) {
+            callerFinder = new SecurityManagerBasedCallerFinder();
+        }
+        CALLER_FINDER = callerFinder;
     }
 
     private UnsafeDelegator() {
@@ -184,6 +208,95 @@ public final class UnsafeDelegator {
     }
 
     //////////////////////////////////////////////////////////////////////////
+    
+    private static class CallerInfo {
+        
+        private static final int MAX_CALLER_DEPTH = 8;
+        
+        private final Class<?>[] callerClasses;
+        
+        private CallerInfo(Class<?>[] callerClasses) {
+            this.callerClasses = callerClasses;
+        }
+        
+    }
+    
+    private interface CallerFinder {
+        
+        Class<?> getCallerClass(int depth);
+        
+    }
+    
+    private static class ReflectionBasedCallerFinder 
+            implements CallerFinder {
+
+        @SuppressWarnings("deprecation")
+        @Override
+        public Class<?> getCallerClass(int depth) {
+            return Reflection.getCallerClass(depth + 2);
+        }
+        
+    }
+    
+    private static class SecurityManagerBasedCallerFinder 
+            extends SecurityManager 
+            implements CallerFinder {
+
+        @Override
+        public Class<?> getCallerClass(int depth) {
+            depth++;
+            Class<?>[] classContext = getClassContext();
+            if (depth < classContext.length) {
+                return classContext[depth];
+            } else {
+                return null;
+            }
+        }
+        
+    }
+    
+    private static long calculateCallerKey(long callerInfoKey, int currentKey) {
+        final long k = callerInfoKey ^ currentKey;
+        // phi = 2^64 / goldenRatio
+        final long phi = 0x9E3779B97F4A7C15L;
+        long h = k * phi;
+        h ^= h >>> 32;
+        return h ^ (h >>> 16);
+    }
+    
+    private static long getOrCreateCallerInfo(int skipCallerCount) {
+        skipCallerCount++;
+        long callerInfoKey = 0L;
+        int i;
+        for (i = 0; i < CallerInfo.MAX_CALLER_DEPTH; i++) {
+            Class<?> callerClass = CALLER_FINDER.getCallerClass(skipCallerCount + i);
+            if (callerClass != null) {
+                callerInfoKey = calculateCallerKey(callerInfoKey, callerClass.hashCode());
+            } else {
+                break;
+            }
+        }
+        if (CALLER_INFO_MAP.get(callerInfoKey) == null) {
+            Class<?>[] callerClasses = new Class<?>[i];
+            for (int j = 0; j < i; j++) {
+                callerClasses[j] =  CALLER_FINDER.getCallerClass(skipCallerCount + j);
+            }
+            CALLER_INFO_MAP.putIfAbsent(callerInfoKey, new CallerInfo(callerClasses));
+        }
+        return callerInfoKey;
+    }
+    
+    private static void saveCallerInfoOnAllocation(long address, int skipCallerCount) {
+        skipCallerCount++;
+        long callerInfoKey = getOrCreateCallerInfo(skipCallerCount);
+        ALLOCATION_CALLER_INFO_MAP.put(address, callerInfoKey);
+    }
+    
+    private static void deleteCallerInfoOnFree(long address) {
+        ALLOCATION_CALLER_INFO_MAP.remove(address);
+    }
+    
+    //////////////////////////////////////////////////////////////////////////
 
     public static boolean isSafeMemoryManagementModeEnabled() {
         return SAFE_MEMORY_MANAGEMENT_MODE_ENABLED;
@@ -210,6 +323,9 @@ public final class UnsafeDelegator {
     public static void afterAllocateMemory(long size, long address) {
         ALLOCATED_MEMORY_STORAGE.put(address, size);
         ALLOCATED_MEMORY.addAndGet(size);
+        if (CALLER_INFO_MONITORING_MODE_ENABLED) {
+            saveCallerInfoOnAllocation(address, 2);
+        }
         if (REGISTERED_LISTENER_EXIST) {
             for (MemoryListener listener : LISTENERS) {
                 listener.afterAllocateMemory(address, size);
@@ -255,6 +371,9 @@ public final class UnsafeDelegator {
     public static void afterFreeMemory(long address, long size) {
         if (size != INVALID) {
             ALLOCATED_MEMORY.addAndGet(-size);
+            if (CALLER_INFO_MONITORING_MODE_ENABLED) {
+                deleteCallerInfoOnFree(address);
+            }
             if (REGISTERED_LISTENER_EXIST) {
                 for (MemoryListener listener : LISTENERS) {
                     listener.afterFreeMemory(address, size, true);
@@ -336,6 +455,10 @@ public final class UnsafeDelegator {
         if (oldSize != INVALID) {
             ALLOCATED_MEMORY_STORAGE.put(newAddress, newSize);
             ALLOCATED_MEMORY.addAndGet(newSize - oldSize);
+            if (CALLER_INFO_MONITORING_MODE_ENABLED) {
+                deleteCallerInfoOnFree(oldAddress);
+                saveCallerInfoOnAllocation(newAddress, 2);
+            }
             if (REGISTERED_LISTENER_EXIST) {
                 for (MemoryListener listener : LISTENERS) {
                     listener.afterReallocateMemory(oldAddress, oldSize, newAddress, newSize, true);
@@ -404,10 +527,26 @@ public final class UnsafeDelegator {
         ALLOCATED_MEMORY_STORAGE.iterate(new AllocatedMemoryIterator() {
             @Override
             public void onAllocatedMemory(long address, long size) {
-                ps.println("Address : " + String.format("0x%016x", address));
-                ps.println("Size    : " + size);
-                ps.println("Dump    :");
+                ps.println("Address     : " + String.format("0x%016x", address));
+                ps.println("Size        : " + size);
+                ps.println("Dump        :");
                 dump(ps, unsafe, address, size);
+                if (CALLER_INFO_MONITORING_MODE_ENABLED) {
+                    ps.println("Caller Info :");
+                    Long callerInfoKey = ALLOCATION_CALLER_INFO_MAP.get(address);
+                    if (callerInfoKey == null) {
+                        ps.println("\tNo related caller info!");
+                    } else {
+                        CallerInfo callerInfo = CALLER_INFO_MAP.get(callerInfoKey);
+                        if (callerInfo == null) {
+                            ps.println("\tNo caller info!");
+                        } else {
+                            for (Class<?> callerClass : callerInfo.callerClasses) {
+                                ps.println("\t- " + callerClass);
+                            }
+                        }
+                    }
+                }
                 ps.println();
                 ps.print("========================================");
                 ps.print("========================================");
@@ -416,17 +555,15 @@ public final class UnsafeDelegator {
             }
         });   
     }
-    
+
     private static void dump(PrintStream ps, Unsafe unsafe, long address, long size) {
-        ps.print("\t");
         for (int i = 0; i < size; i++) {
             if (i % 16 == 0) {
-                ps.print(String.format("[0x%016x]: ", i));
+                ps.print(String.format("\t[0x%016x]: ", i));
             }
             ps.print(String.format("%02x ", unsafe.getByte(address + i)));
             if ((i + 1) % 16 == 0) {
                 ps.println();
-                ps.print("\t");
             }
         }  
         if (size % 16 != 0) {
@@ -1399,5 +1536,5 @@ public final class UnsafeDelegator {
     }
     
     //////////////////////////////////////////////////////////////////////////
-    
+
 }
