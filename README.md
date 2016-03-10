@@ -209,7 +209,8 @@ Bug fixes and enhancements at each release:
 7.2. Version 2.0
 --------------
 * Some renaming on interfaces, classes and method names about **Unsafe** terms including API.
-* Ability to specify custom memory allocation, reallocation and free points (methods) instead of `Unsafe`'s `allocateMemory`, `freeMemory` and `reallocateMemory` methods. 
+* Ability to specify custom memory allocation, reallocation and free points (methods) instead of `Unsafe`'s `allocateMemory`, `freeMemory` and `reallocateMemory` methods.
+* Ability to monitor stacktraces of memory allocations by **class namess** and **thread name**.
 
 8. Roadmap
 ==============
