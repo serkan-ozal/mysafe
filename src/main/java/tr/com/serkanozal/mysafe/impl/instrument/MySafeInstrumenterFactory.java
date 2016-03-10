@@ -15,19 +15,19 @@
  */
 package tr.com.serkanozal.mysafe.impl.instrument;
 
-public final class UnsafeUsageInstrumenterFactory {
+public final class MySafeInstrumenterFactory {
 
-    private UnsafeUsageInstrumenterFactory() {
+    private MySafeInstrumenterFactory() {
         
     }
     
-    public static UnsafeUsageInstrumenter createUnsafeUsageInstrumenter() {
-        UnsafeUsageInstrumenter[] instrumenters = 
-                new UnsafeUsageInstrumenter[] {
+    public static MySafeInstrumenter createMySafeInstrumenter() {
+        MySafeInstrumenter[] instrumenters = 
+                new MySafeInstrumenter[] {
                     new UnsafeInterceptorInstrumenter(),
                     new CustomMemoryManagementInstrumenter()
                 };
-        return new MySafeInstrumenter(instrumenters);
+        return new CompositeMySafeInstrumenter(instrumenters);
     }
     
 }

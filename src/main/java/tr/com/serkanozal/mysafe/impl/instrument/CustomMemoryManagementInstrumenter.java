@@ -36,7 +36,7 @@ import javassist.CtClass;
 import javassist.CtMethod;
 import javassist.NotFoundException;
 
-class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
+class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
 
     private final boolean USE_CUSTOM_MEMORY_MANAGEMENT = 
             Boolean.getBoolean("mysafe.useCustomMemoryManagement");
@@ -246,9 +246,9 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
         
         StringBuilder generatedMethodBody = new StringBuilder();
         generatedMethodBody.append("{").append("\n");
-        generatedMethodBody.append("UnsafeDelegator.beforeAllocateMemory($").append(sizeParamOrder).append(");").append("\n");
+        generatedMethodBody.append("MySafeDelegator.beforeAllocateMemory($").append(sizeParamOrder).append(");").append("\n");
         generatedMethodBody.append("long address$$$MySafe$$$ = ").append(actualMethodCallSignature.toString()).append("\n");
-        generatedMethodBody.append("UnsafeDelegator.afterAllocateMemory($").append(sizeParamOrder).append(", address$$$MySafe$$$);").append("\n");
+        generatedMethodBody.append("MySafeDelegator.afterAllocateMemory($").append(sizeParamOrder).append(", address$$$MySafe$$$);").append("\n");
         generatedMethodBody.append("return address$$$MySafe$$$;").append("\n");
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
@@ -312,11 +312,11 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
         */
         StringBuilder generatedMethodBody = new StringBuilder();
         generatedMethodBody.append("{").append("\n");
-        generatedMethodBody.append("long size$$$MySafe$$$ = UnsafeDelegator.beforeFreeMemory($").append(addressParamOrder).append(");").append("\n");
+        generatedMethodBody.append("long size$$$MySafe$$$ = MySafeDelegator.beforeFreeMemory($").append(addressParamOrder).append(");").append("\n");
         generatedMethodBody.append("if (size$$$MySafe$$$ != ").append(INVALID).append(") {").append("\n");
         generatedMethodBody.append("\t").append(actualMethodCallSignature.toString()).append("\n");
         generatedMethodBody.append("}").append("\n");
-        generatedMethodBody.append("UnsafeDelegator.afterFreeMemory($").append(addressParamOrder).append(", size$$$MySafe$$$);").append("\n");
+        generatedMethodBody.append("MySafeDelegator.afterFreeMemory($").append(addressParamOrder).append(", size$$$MySafe$$$);").append("\n");
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
         
@@ -386,12 +386,12 @@ class CustomMemoryManagementInstrumenter implements UnsafeUsageInstrumenter {
         */
         StringBuilder generatedMethodBody = new StringBuilder();
         generatedMethodBody.append("{").append("\n");
-        generatedMethodBody.append("long oldSize$$$MySafe$$$ = UnsafeDelegator.beforeReallocateMemory($").append(oldAddressParamOrder).append(");").append("\n");
+        generatedMethodBody.append("long oldSize$$$MySafe$$$ = MySafeDelegator.beforeReallocateMemory($").append(oldAddressParamOrder).append(");").append("\n");
         generatedMethodBody.append("long newAddress$$$MySafe$$$ = ").append(INVALID).append(";\n");
         generatedMethodBody.append("if (oldSize$$$MySafe$$$ != ").append(INVALID).append(") {").append("\n");
         generatedMethodBody.append("\t").append("newAddress$$$MySafe$$$ = ").append(actualMethodCallSignature.toString()).append("\n");
         generatedMethodBody.append("}").append("\n");
-        generatedMethodBody.append("UnsafeDelegator.afterReallocateMemory").
+        generatedMethodBody.append("MySafeDelegator.afterReallocateMemory").
                                 append("(").
                                     append("$").append(oldAddressParamOrder).append(", ").
                                     append("oldSize$$$MySafe$$$, ").

@@ -29,17 +29,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.jar.Manifest;
 
 import sun.misc.Resource;
-import tr.com.serkanozal.mysafe.impl.instrument.UnsafeUsageInstrumenter;
+import tr.com.serkanozal.mysafe.impl.instrument.MySafeInstrumenter;
 import tr.com.serkanozal.mysafe.impl.util.ClasspathUtil;
 
 public class MySafeClassLoader extends URLClassLoader {
 
-    private final UnsafeUsageInstrumenter unsafeUsageInstrumenter;
+    private final MySafeInstrumenter mysafeInstrumenter;
     private final AtomicBoolean initialized;
 
     public MySafeClassLoader(ClassLoader parent) {
         super(findClasspathUrls(parent), null);
-        this.unsafeUsageInstrumenter = createUnsafeUsageInstrumenter(parent);
+        this.mysafeInstrumenter = createMySafeInstrumenter(parent);
         try {
             Class<?> atomicBooleanClass = parent.loadClass("java.util.concurrent.atomic.AtomicBoolean");
             initialized = (AtomicBoolean) atomicBooleanClass.newInstance();
@@ -47,7 +47,7 @@ public class MySafeClassLoader extends URLClassLoader {
             URL[] classpathUrls = findClasspathUrls(parent);
             Field urlClasspathField = URLClassLoader.class.getDeclaredField("ucp");
             urlClasspathField.setAccessible(true);
-            urlClasspathField.set(this, new UnsafeAwareUrlClasspath(classpathUrls, unsafeUsageInstrumenter));
+            urlClasspathField.set(this, new MySafeAwareUrlClasspath(classpathUrls, mysafeInstrumenter));
         } catch (IllegalStateException e) {
             throw e;
         } catch (Throwable t) {
@@ -67,12 +67,12 @@ public class MySafeClassLoader extends URLClassLoader {
         }    
     }
     
-    private UnsafeUsageInstrumenter createUnsafeUsageInstrumenter(ClassLoader parent) {
+    private MySafeInstrumenter createMySafeInstrumenter(ClassLoader parent) {
         try {
             Class<?> instrumenterFactoryClass = 
-                    parent.loadClass("tr.com.serkanozal.mysafe.impl.instrument.UnsafeUsageInstrumenterFactory");
-            Method factoryMethod = instrumenterFactoryClass.getMethod("createUnsafeUsageInstrumenter");
-            return (UnsafeUsageInstrumenter) factoryMethod.invoke(instrumenterFactoryClass);
+                    parent.loadClass("tr.com.serkanozal.mysafe.impl.instrument.MySafeInstrumenterFactory");
+            Method factoryMethod = instrumenterFactoryClass.getMethod("createMySafeInstrumenter");
+            return (MySafeInstrumenter) factoryMethod.invoke(instrumenterFactoryClass);
         } catch (Throwable t) {
             throw new IllegalStateException(t);
         }   
@@ -92,13 +92,13 @@ public class MySafeClassLoader extends URLClassLoader {
         return super.loadClass(name);
     }
 
-    private static class UnsafeAwareUrlClasspath extends sun.misc.URLClassPath {
+    private static class MySafeAwareUrlClasspath extends sun.misc.URLClassPath {
 
-        private final UnsafeUsageInstrumenter unsafeUsageInstrumenter;
+        private final MySafeInstrumenter mySafeInstrumenter;
         
-        private UnsafeAwareUrlClasspath(URL[] urls, UnsafeUsageInstrumenter unsafeUsageInstrumenter) {
+        private MySafeAwareUrlClasspath(URL[] urls, MySafeInstrumenter mySafeInstrumenter) {
             super(urls);
-            this.unsafeUsageInstrumenter = unsafeUsageInstrumenter;
+            this.mySafeInstrumenter = mySafeInstrumenter;
         }
 
         @Override
@@ -108,7 +108,7 @@ public class MySafeClassLoader extends URLClassLoader {
                 return null;
             }
             if (name.endsWith(".class")) {
-                return new UnsafeAwareClassResource(name, resource, unsafeUsageInstrumenter);
+                return new MySafeAwareClassResource(name, resource, mySafeInstrumenter);
             } else {
                 return resource;
             }
@@ -121,7 +121,7 @@ public class MySafeClassLoader extends URLClassLoader {
                 return null;
             }
             if (name.endsWith(".class")) {
-                return new UnsafeAwareClassResource(name, resource, unsafeUsageInstrumenter);
+                return new MySafeAwareClassResource(name, resource, mySafeInstrumenter);
             } else {
                 return resource;
             }    
@@ -129,19 +129,19 @@ public class MySafeClassLoader extends URLClassLoader {
 
     }
 
-    private static class UnsafeAwareClassResource extends sun.misc.Resource {
+    private static class MySafeAwareClassResource extends sun.misc.Resource {
 
         private final String classResourceName;
         private final String className;
         private final sun.misc.Resource delegatedResource;
-        private final UnsafeUsageInstrumenter unsafeUsageInstrumenter;
+        private final MySafeInstrumenter mySafeInstrumenter;
 
-        private UnsafeAwareClassResource(String classResourceName, sun.misc.Resource delegatedResource,
-                                         UnsafeUsageInstrumenter unsafeUsageInstrumenter) {
+        private MySafeAwareClassResource(String classResourceName, sun.misc.Resource delegatedResource,
+                                         MySafeInstrumenter mySafeInstrumenter) {
             this.classResourceName = classResourceName;
             this.className = classResourceName.substring(0, classResourceName.indexOf(".")).replace("/", ".");
             this.delegatedResource = delegatedResource;
-            this.unsafeUsageInstrumenter = unsafeUsageInstrumenter;
+            this.mySafeInstrumenter = mySafeInstrumenter;
         }
 
         @Override
@@ -190,13 +190,13 @@ public class MySafeClassLoader extends URLClassLoader {
             if (bb == null) {
                 return null;
             }
-            byte[] b = unsafeUsageInstrumenter.instrument(className, bb.array());
+            byte[] b = mySafeInstrumenter.instrument(className, bb.array());
             return ByteBuffer.wrap(b);
         }
 
         @Override
         public byte[] getBytes() throws IOException {
-            return unsafeUsageInstrumenter.instrument(className, delegatedResource.getBytes());
+            return mySafeInstrumenter.instrument(className, delegatedResource.getBytes());
         }
 
     }

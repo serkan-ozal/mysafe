@@ -32,9 +32,9 @@ import tr.com.serkanozal.mysafe.config.ReallocationPoint;
  *      - Activate the <b>MySafe</b> by defining its classloader as system classloader 
  *        via `-Djava.system.class.loader=tr.com.serkanozal.mysafe.impl.classloader.MySafeClassLoader`
  *      - Activate the <b>MySafe</b> through Java agent (<b>Jillegal-Agent</b>) by using `sun.misc.Unsafe` instrumenter of <b>MySafe</b>
- *        via `-javaagent:<path_to_jillegal_agent>\<jillegal_agent_jar>="-p tr.com.serkanozal.mysafe.impl.processor.UnsafeProcessor"`.
+ *        via `-javaagent:<path_to_jillegal_agent>\<jillegal_agent_jar>="-p tr.com.serkanozal.mysafe.impl.processor.MySafeProcessor"`.
  *        For example:
- *              `-javaagent:$M2_HOME\tr\com\serkanozal\jillegal-agent\2.0\jillegal-agent-2.0.jar="-p tr.com.serkanozal.mysafe.impl.processor.UnsafeProcessor"`
+ *              `-javaagent:$M2_HOME\tr\com\serkanozal\jillegal-agent\2.0\jillegal-agent-2.0.jar="-p tr.com.serkanozal.mysafe.impl.processor.MySafeProcessor"`
  *      - Activate the <b>MySafe</b> programmatically by `MySafe.youAreMine();`
  * </pre>
  * 
@@ -134,7 +134,7 @@ public class CustomMemoryManagementDemo {
             };
             
             // Register listener to be notified for each allocate/free/reallocate
-            MySafe.registerUnsafeListener(listener);
+            MySafe.registerMemoryListener(listener);
             
             // Allocate a sample memory
             long address = memoryManager.allocate(8);
@@ -182,7 +182,7 @@ public class CustomMemoryManagementDemo {
             });
             
             // Deregister registered listener
-            MySafe.deregisterUnsafeListener(listener);
+            MySafe.deregisterMemoryListener(listener);
             
             // Dump all allocated memories to console
             MySafe.dumpAllocatedMemories();

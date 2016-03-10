@@ -25,9 +25,9 @@ import javax.management.ObjectName;
 
 import sun.misc.Unsafe;
 import tr.com.serkanozal.jillegal.agent.JillegalAgent;
-import tr.com.serkanozal.mysafe.impl.UnsafeDelegator;
+import tr.com.serkanozal.mysafe.impl.MySafeDelegator;
 import tr.com.serkanozal.mysafe.impl.mx.MySafeMXBeanImpl;
-import tr.com.serkanozal.mysafe.impl.processor.UnsafeProcessor;
+import tr.com.serkanozal.mysafe.impl.processor.MySafeProcessor;
 
 /**
  * Entrance point (God class) for <tt>MySafe</tt> framework.
@@ -78,7 +78,7 @@ public final class MySafe {
     }
     
     private static void initializeMXBean() {
-        if (!Boolean.getBoolean("mysafe.disableMXBean")) {
+        if (Boolean.getBoolean("mysafe.enableMXBean")) {
             try {
                 final String MXBEAN_REGISTERED_PROPERTY_NAME = "mysafe.mxBeanRegistered";
                 synchronized (System.class) {
@@ -102,7 +102,7 @@ public final class MySafe {
      */
     public static void youAreMine() {
         if (active.compareAndSet(false, true)) {
-            JillegalAgent.init("-p " + UnsafeProcessor.class.getName());
+            JillegalAgent.init("-p " + MySafeProcessor.class.getName());
         }
     }
 
@@ -114,7 +114,7 @@ public final class MySafe {
      *         is enabled, otherwise <tt>false</tt>
      */
     public static boolean isSafeMemoryManagementModeEnabled() {
-        return UnsafeDelegator.isSafeMemoryManagementModeEnabled();
+        return MySafeDelegator.isSafeMemoryManagementModeEnabled();
     }
     
     /**
@@ -125,7 +125,7 @@ public final class MySafe {
      *         is enabled, otherwise <tt>false</tt>
      */
     public static boolean isSafeMemoryAccessModeEnabled() {
-        return UnsafeDelegator.isSafeMemoryAccessModeEnabled();
+        return MySafeDelegator.isSafeMemoryAccessModeEnabled();
     }
     
     /**
@@ -134,7 +134,7 @@ public final class MySafe {
      * @return the allocated memory size in bytes
      */
     public static long getAllocatedMemorySize() {
-        return UnsafeDelegator.getAllocatedMemorySize();
+        return MySafeDelegator.getAllocatedMemorySize();
     }
     
     /**
@@ -156,8 +156,8 @@ public final class MySafe {
      * 
      * @param listener the {@link MemoryListener} instance to be registered
      */
-    public static void registerUnsafeListener(MemoryListener listener) {
-        UnsafeDelegator.registerUnsafeListener(listener);
+    public static void registerMemoryListener(MemoryListener listener) {
+        MySafeDelegator.registerMemoryListener(listener);
     }
     
     /**
@@ -165,8 +165,8 @@ public final class MySafe {
      * 
      * @param listener the {@link MemoryListener} instance to be deregistered
      */
-    public static void deregisterUnsafeListener(MemoryListener listener) {
-        UnsafeDelegator.deregisterUnsafeListener(listener);
+    public static void deregisterMemoryListener(MemoryListener listener) {
+        MySafeDelegator.deregisterMemoryListener(listener);
     }
 
     /**
@@ -176,7 +176,7 @@ public final class MySafe {
      *                 for each allocated memory while iterating
      */
     public static void iterateOnAllocatedMemories(AllocatedMemoryIterator iterator) {
-        UnsafeDelegator.iterateOnAllocatedMemories(iterator);
+        MySafeDelegator.iterateOnAllocatedMemories(iterator);
     }
     
     /**
@@ -192,7 +192,7 @@ public final class MySafe {
      * @param ps the {@link PrintStream} instance to dump allocated memories
      */
     public static void dumpAllocatedMemories(final PrintStream ps) {
-        UnsafeDelegator.dumpAllocatedMemories(ps, UNSAFE);
+        MySafeDelegator.dumpAllocatedMemories(ps, UNSAFE);
     }
     
 }

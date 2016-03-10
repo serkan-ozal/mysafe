@@ -41,9 +41,9 @@ import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessT
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.FREE;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.REALLOCATE;
 
-public final class UnsafeDelegator {
+public final class MySafeDelegator {
 
-    private static final Logger LOGGER = Logger.getLogger(UnsafeDelegator.class);
+    private static final Logger LOGGER = Logger.getLogger(MySafeDelegator.class);
 
     private static final AllocatedMemoryStorage ALLOCATED_MEMORY_STORAGE;
     private static final IllegalMemoryAccessListener ILLEGAL_MEMORY_ACCESS_LISTENER;
@@ -141,7 +141,7 @@ public final class UnsafeDelegator {
         CALLER_FINDER = callerFinder;
     }
 
-    private UnsafeDelegator() {
+    private MySafeDelegator() {
         throw new UnsupportedOperationException("Not avaiable for instantiation!");
     }
 
@@ -585,12 +585,12 @@ public final class UnsafeDelegator {
     
     //////////////////////////////////////////////////////////////////////////
     
-    public static synchronized void registerUnsafeListener(MemoryListener listener) {
+    public static synchronized void registerMemoryListener(MemoryListener listener) {
         LISTENERS.add(listener);
         REGISTERED_LISTENER_EXIST = true;
     }
     
-    public static synchronized void deregisterUnsafeListener(MemoryListener listener) {
+    public static synchronized void deregisterMemoryListener(MemoryListener listener) {
         LISTENERS.remove(listener);
         REGISTERED_LISTENER_EXIST = !LISTENERS.isEmpty();
     }

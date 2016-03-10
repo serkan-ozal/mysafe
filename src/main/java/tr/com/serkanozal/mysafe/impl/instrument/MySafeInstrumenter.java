@@ -15,20 +15,8 @@
  */
 package tr.com.serkanozal.mysafe.impl.instrument;
 
-class MySafeInstrumenter implements UnsafeUsageInstrumenter {
+public interface MySafeInstrumenter {
 
-    private final UnsafeUsageInstrumenter[] instrumenters;
+    byte[] instrument(String className, byte[] classData);
     
-    MySafeInstrumenter(UnsafeUsageInstrumenter[] instrumenters) {
-        this.instrumenters = instrumenters;
-    }
-    
-    @Override
-    public byte[] instrument(String className, byte[] classData) {
-        for (UnsafeUsageInstrumenter instrumenter : instrumenters) {
-            classData = instrumenter.instrument(className, classData);
-        }
-        return classData;
-    }
-
 }
