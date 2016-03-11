@@ -16,18 +16,18 @@
 package tr.com.serkanozal.mysafe.impl;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+
+import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 
 class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
-    private final ConcurrentMap<Long, Long> allocatedMemories;
+    private final NonBlockingHashMapLong<Long> allocatedMemories;
     
     DefaultAllocatedMemoryStorage() {
-        this.allocatedMemories = new ConcurrentHashMap<Long, Long>(1024);
+        this.allocatedMemories = new NonBlockingHashMapLong<Long>(1024 * 1024, false);
     }
 
     @Override
@@ -62,7 +62,7 @@ class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
     @Override
     public void put(long address, long size) {
-        allocatedMemories.put(address, size);
+        allocatedMemories.put(address, (Long) size);
     }
 
     @Override

@@ -53,9 +53,9 @@ public final class MySafeDelegator {
     private static Set<MemoryListener> LISTENERS = 
             Collections.newSetFromMap(new ConcurrentHashMap<MemoryListener, Boolean>());
     private static final NonBlockingHashMapLong<CallerInfo> CALLER_INFO_MAP =
-            new NonBlockingHashMapLong<CallerInfo>(8);
+            new NonBlockingHashMapLong<CallerInfo>(8, false);
     private static final NonBlockingHashMapLong<CallerInfo> ALLOCATION_CALLER_INFO_MAP =
-            new NonBlockingHashMapLong<CallerInfo>(1024);
+            new NonBlockingHashMapLong<CallerInfo>(1024, false);
     private static final CallerFinder CALLER_FINDER;
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
@@ -215,7 +215,7 @@ public final class MySafeDelegator {
     
     private static class CallerInfo {
         
-        private static final int MAX_CALLER_DEPTH = 8;
+        private static final int MAX_CALLER_DEPTH = 4;
         
         private final Class<?>[] callerClasses;
         private final String threadName;
@@ -258,7 +258,7 @@ public final class MySafeDelegator {
                 return null;
             }
         }
-        
+
     }
     
     private static long calculateCallerKey(long callerInfoKey, int currentKey) {
@@ -282,15 +282,15 @@ public final class MySafeDelegator {
                 break;
             }
         }
-        String threadName = Thread.currentThread().getName();
-        callerInfoKey = calculateCallerKey(callerInfoKey, threadName.hashCode());
+        Thread callerThread = Thread.currentThread();
+        callerInfoKey = calculateCallerKey(callerInfoKey, callerThread.hashCode());
         CallerInfo callerInfo = CALLER_INFO_MAP.get(callerInfoKey);
         if (callerInfo == null) {
             Class<?>[] callerClasses = new Class<?>[i];
             for (int j = 0; j < i; j++) {
-                callerClasses[j] =  CALLER_FINDER.getCallerClass(skipCallerCount + j);
+                callerClasses[j] = CALLER_FINDER.getCallerClass(skipCallerCount + j);
             }
-            CallerInfo newCallerInfo = new CallerInfo(callerClasses, threadName);
+            CallerInfo newCallerInfo = new CallerInfo(callerClasses, callerThread.getName());
             CallerInfo existingCallerInfo = CALLER_INFO_MAP.putIfAbsent(callerInfoKey, newCallerInfo);
             if (existingCallerInfo == null) {
                 callerInfo = newCallerInfo;
