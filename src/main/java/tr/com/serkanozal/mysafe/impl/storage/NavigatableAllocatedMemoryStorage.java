@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package tr.com.serkanozal.mysafe.impl;
+package tr.com.serkanozal.mysafe.impl.storage;
 
 import java.util.Map;
 import java.util.NavigableMap;
@@ -22,11 +22,11 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 
-class NavigatableAllocatedMemoryStorage implements AllocatedMemoryStorage {
+public class NavigatableAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
     private final NavigableMap<Long, Long> allocatedMemories;
     
-    NavigatableAllocatedMemoryStorage() {
+    public NavigatableAllocatedMemoryStorage() {
         this.allocatedMemories = new ConcurrentSkipListMap<Long, Long>();
     }
 

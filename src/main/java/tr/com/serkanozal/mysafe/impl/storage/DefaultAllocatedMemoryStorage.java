@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package tr.com.serkanozal.mysafe.impl;
+package tr.com.serkanozal.mysafe.impl.storage;
 
 import java.util.Map;
 
@@ -22,11 +22,11 @@ import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 
-class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
+public class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
     private final NonBlockingHashMapLong<Long> allocatedMemories;
     
-    DefaultAllocatedMemoryStorage() {
+    public DefaultAllocatedMemoryStorage() {
         this.allocatedMemories = new NonBlockingHashMapLong<Long>(1024 * 1024, false);
     }
 

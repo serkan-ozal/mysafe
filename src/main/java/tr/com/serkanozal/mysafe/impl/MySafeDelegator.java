@@ -34,6 +34,10 @@ import tr.com.serkanozal.mysafe.MySafe;
 import tr.com.serkanozal.mysafe.MemoryListener;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessor;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessorFactory;
+import tr.com.serkanozal.mysafe.impl.storage.DefaultAllocatedMemoryStorage;
+import tr.com.serkanozal.mysafe.impl.storage.NavigatableAllocatedMemoryStorage;
+import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalDefaultAllocatedMemoryStorage;
+import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalNavigatableAllocatedMemoryStorage;
 import static tr.com.serkanozal.mysafe.AllocatedMemoryStorage.INVALID;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.READ;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.WRITE;
@@ -65,6 +69,8 @@ public final class MySafeDelegator {
     private static final boolean SAFE_MEMORY_ACCESS_MODE_ENABLED;
     private static final boolean CALLER_INFO_MONITORING_MODE_ENABLED =
             Boolean.getBoolean("mysafe.enableCallerInfoMonitoringMode");
+    private static final boolean THREAD_LOCAL_MEMORY_USAGE_PATTERN_EXIST = 
+            Boolean.getBoolean("mysafe.threadLocalMemoryUsagePatternExist");
     private static volatile boolean REGISTERED_LISTENER_EXIST = false;
    
     static {
@@ -102,10 +108,18 @@ public final class MySafeDelegator {
                         ALLOCATED_MEMORYStorageImplClassName, e);
             }
         } else {
-            if (safeMemoryAccessModeEnabled) {
-                ALLOCATED_MEMORY_STORAGE = new NavigatableAllocatedMemoryStorage();
+            if (THREAD_LOCAL_MEMORY_USAGE_PATTERN_EXIST) {
+                if (safeMemoryAccessModeEnabled) {
+                    ALLOCATED_MEMORY_STORAGE = new ThreadLocalNavigatableAllocatedMemoryStorage(DEFAULT_UNSAFE);
+                } else {
+                    ALLOCATED_MEMORY_STORAGE = new ThreadLocalDefaultAllocatedMemoryStorage(DEFAULT_UNSAFE);
+                }
             } else {
-                ALLOCATED_MEMORY_STORAGE = new DefaultAllocatedMemoryStorage();
+                if (safeMemoryAccessModeEnabled) {
+                    ALLOCATED_MEMORY_STORAGE = new NavigatableAllocatedMemoryStorage();
+                } else {
+                    ALLOCATED_MEMORY_STORAGE = new DefaultAllocatedMemoryStorage();
+                }
             }    
         }
         
