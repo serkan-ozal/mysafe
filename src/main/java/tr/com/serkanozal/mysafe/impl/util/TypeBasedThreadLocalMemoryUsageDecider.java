@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package tr.com.serkanozal.mysafe.impl.storage;
+package tr.com.serkanozal.mysafe.impl.util;
 
 import tr.com.serkanozal.mysafe.ParametricThreadLocalMemoryUsageDecider;
 

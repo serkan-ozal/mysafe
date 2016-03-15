@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package tr.com.serkanozal.mysafe.impl.storage;
+package tr.com.serkanozal.mysafe.impl.util;
 
 import java.util.AbstractSet;
 import java.util.Arrays;
@@ -33,7 +33,7 @@ import java.util.stream.Stream;
 /**
  * A Probing hashmap specialised for long key and value pairs.
  */
-class Long2LongHashMap {
+public class Long2LongHashMap {
     
     /** The default load factor for constructors not explicitly supplying it */
     public static final double DEFAULT_LOAD_FACTOR = 0.6;

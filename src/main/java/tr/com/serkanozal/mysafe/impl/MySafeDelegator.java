@@ -23,7 +23,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Logger;
-import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 
 import sun.misc.Unsafe;
 import sun.reflect.Reflection;
@@ -36,6 +35,11 @@ import tr.com.serkanozal.mysafe.ParametricThreadLocalMemoryUsageDecider;
 import tr.com.serkanozal.mysafe.ThreadLocalMemoryUsageDecider;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessor;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessorFactory;
+import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfo;
+import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfoStorage;
+import tr.com.serkanozal.mysafe.impl.callerinfo.DefaultCallerInfoStorage;
+import tr.com.serkanozal.mysafe.impl.callerinfo.ThreadLocalAwareCallerInfoStorage;
+import tr.com.serkanozal.mysafe.impl.callerinfo.ThreadLocalDefaultCallerInfoStorage;
 import tr.com.serkanozal.mysafe.impl.storage.DefaultAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.NavigatableAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalAwareAllocatedMemoryStorage;
@@ -59,10 +63,7 @@ public final class MySafeDelegator {
     private static final MemoryAccessLock MEMORY_ACCESS_LOCK;
     private static Set<MemoryListener> LISTENERS = 
             Collections.newSetFromMap(new ConcurrentHashMap<MemoryListener, Boolean>());
-    private static final NonBlockingHashMapLong<CallerInfo> CALLER_INFO_MAP =
-            new NonBlockingHashMapLong<CallerInfo>(8, false);
-    private static final NonBlockingHashMapLong<CallerInfo> ALLOCATION_CALLER_INFO_MAP =
-            new NonBlockingHashMapLong<CallerInfo>(1024, false);
+    private static final CallerInfoStorage CALLER_INFO_STORAGE;
     private static final CallerFinder CALLER_FINDER;
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
@@ -97,50 +98,51 @@ public final class MySafeDelegator {
         MEMORY_ACCESS_LOCK = new MemoryAccessLock(DEFAULT_UNSAFE);
         OBJECT_REFERENCE_SIZE = DEFAULT_UNSAFE.arrayIndexScale(Object[].class);
         
-        String ALLOCATED_MEMORYStorageImplClassName = System.getProperty("mysafe.allocatedMemoryStorageImpl");
-        if (ALLOCATED_MEMORYStorageImplClassName != null) {
+        ThreadLocalMemoryUsageDecider threadLocalMemoryUsageDecider = null;
+        String threadLocalMemoryUsageDeciderConfig = System.getProperty("mysafe.threadLocalMemoryUsageDeciderImpl");
+        if (threadLocalMemoryUsageDeciderConfig != null) {
+            String[] threadLocalMemoryUsageDeciderConfigParts = threadLocalMemoryUsageDeciderConfig.split(":"); 
+            String threadLocalMemoryUsageDeciderImplClassName = threadLocalMemoryUsageDeciderConfigParts[0];
+            try {
+                @SuppressWarnings("unchecked")
+                Class<? extends ThreadLocalMemoryUsageDecider> threadLocalMemoryUsageDeciderImplClass = 
+                        (Class<? extends ThreadLocalMemoryUsageDecider>) ClassLoader.getSystemClassLoader().
+                            loadClass(threadLocalMemoryUsageDeciderImplClassName);
+                threadLocalMemoryUsageDecider = threadLocalMemoryUsageDeciderImplClass.newInstance();
+                if (threadLocalMemoryUsageDecider instanceof ParametricThreadLocalMemoryUsageDecider) {
+                    String[] params = new String[threadLocalMemoryUsageDeciderConfigParts.length - 1];
+                    System.arraycopy(threadLocalMemoryUsageDeciderConfigParts, 1, 
+                                     params, 0, 
+                                     params.length);
+                    ((ParametricThreadLocalMemoryUsageDecider) threadLocalMemoryUsageDecider).initWithParameters(params);
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException(
+                        "Couldn't create instance of custom 'ThreadLocalMemoryUsageDecider' implementation: " + 
+                        threadLocalMemoryUsageDeciderImplClassName, e);
+            }
+        }
+        
+        String allocatedMemoryStorageImplClassName = System.getProperty("mysafe.allocatedMemoryStorageImpl");
+        if (allocatedMemoryStorageImplClassName != null) {
             try {
                 @SuppressWarnings("unchecked")
                 Class<? extends AllocatedMemoryStorage> ALLOCATED_MEMORYStorageImplClass = 
                         (Class<? extends AllocatedMemoryStorage>) ClassLoader.getSystemClassLoader().
-                            loadClass(ALLOCATED_MEMORYStorageImplClassName);
+                            loadClass(allocatedMemoryStorageImplClassName);
                 ALLOCATED_MEMORY_STORAGE = ALLOCATED_MEMORYStorageImplClass.newInstance();
             } catch (Exception e) {
                 throw new IllegalStateException(
                         "Couldn't create instance of custom 'AllocatedMemoryStorage' implementation: " + 
-                        ALLOCATED_MEMORYStorageImplClassName, e);
+                                allocatedMemoryStorageImplClassName, e);
             }
         } else {
             if (THREAD_LOCAL_MEMORY_USAGE_PATTERN_EXIST) {
                 AllocatedMemoryStorage threadLocalAllocatedMemoryStorage = null;
-                ThreadLocalMemoryUsageDecider threadLocalMemoryUsageDecider = null;
                 if (safeMemoryAccessModeEnabled) {
                     threadLocalAllocatedMemoryStorage = new ThreadLocalNavigatableAllocatedMemoryStorage(DEFAULT_UNSAFE);
                 } else {
                     threadLocalAllocatedMemoryStorage = new ThreadLocalDefaultAllocatedMemoryStorage(DEFAULT_UNSAFE);
-                }
-                String threadLocalMemoryUsageDeciderConfig = System.getProperty("mysafe.threadLocalMemoryUsageDeciderImpl");
-                if (threadLocalMemoryUsageDeciderConfig != null) {
-                    String[] threadLocalMemoryUsageDeciderConfigParts = threadLocalMemoryUsageDeciderConfig.split(":"); 
-                    String threadLocalMemoryUsageDeciderImplClassName = threadLocalMemoryUsageDeciderConfigParts[0];
-                    try {
-                        @SuppressWarnings("unchecked")
-                        Class<? extends ThreadLocalMemoryUsageDecider> threadLocalMemoryUsageDeciderImplClass = 
-                                (Class<? extends ThreadLocalMemoryUsageDecider>) ClassLoader.getSystemClassLoader().
-                                    loadClass(threadLocalMemoryUsageDeciderImplClassName);
-                        threadLocalMemoryUsageDecider = threadLocalMemoryUsageDeciderImplClass.newInstance();
-                        if (threadLocalMemoryUsageDecider instanceof ParametricThreadLocalMemoryUsageDecider) {
-                            String[] params = new String[threadLocalMemoryUsageDeciderConfigParts.length - 1];
-                            System.arraycopy(threadLocalMemoryUsageDeciderConfigParts, 1, 
-                                             params, 0, 
-                                             params.length);
-                            ((ParametricThreadLocalMemoryUsageDecider) threadLocalMemoryUsageDecider).initWithParameters(params);
-                        }
-                    } catch (Exception e) {
-                        throw new IllegalStateException(
-                                "Couldn't create instance of custom 'ThreadLocalMemoryUsageDecider' implementation: " + 
-                                threadLocalMemoryUsageDeciderImplClassName, e);
-                    }
                 }
                 if (threadLocalMemoryUsageDecider != null) {
                     AllocatedMemoryStorage globalAllocatedMemoryStorage;
@@ -183,19 +185,40 @@ public final class MySafeDelegator {
             ILLEGAL_MEMORY_ACCESS_LISTENER = null;
         }
         
-        CallerFinder callerFinder = null;
-        try {
-            Class<?> reflectionClass = Class.forName("sun.reflect.Reflection");
-            Method getCallerClassMethod = reflectionClass.getMethod("getCallerClass", int.class);
-            if (getCallerClassMethod != null) {
-                callerFinder = new ReflectionBasedCallerFinder();
-            } else {
+        if (CALLER_INFO_MONITORING_MODE_ENABLED) {
+            CallerFinder callerFinder = null;
+            try {
+                Class<?> reflectionClass = Class.forName("sun.reflect.Reflection");
+                Method getCallerClassMethod = reflectionClass.getMethod("getCallerClass", int.class);
+                if (getCallerClassMethod != null) {
+                    callerFinder = new ReflectionBasedCallerFinder();
+                } else {
+                    callerFinder = new SecurityManagerBasedCallerFinder();
+                }
+            } catch (Throwable t) {
                 callerFinder = new SecurityManagerBasedCallerFinder();
             }
-        } catch (Throwable t) {
-            callerFinder = new SecurityManagerBasedCallerFinder();
+            CALLER_FINDER = callerFinder;
+            
+            if (THREAD_LOCAL_MEMORY_USAGE_PATTERN_EXIST) {
+                CallerInfoStorage threadLocalCallerInfoStorage = new ThreadLocalDefaultCallerInfoStorage(DEFAULT_UNSAFE);
+                if (threadLocalMemoryUsageDecider != null) {
+                    CallerInfoStorage globalCallerInfoStorage = new DefaultCallerInfoStorage();
+                    CALLER_INFO_STORAGE = 
+                            new ThreadLocalAwareCallerInfoStorage(
+                                    globalCallerInfoStorage, 
+                                    threadLocalCallerInfoStorage, 
+                                    threadLocalMemoryUsageDecider);
+                } else {
+                    CALLER_INFO_STORAGE = threadLocalCallerInfoStorage;
+                }    
+            } else {
+                CALLER_INFO_STORAGE = new DefaultCallerInfoStorage();
+            }
+        } else {
+            CALLER_FINDER = null;
+            CALLER_INFO_STORAGE = null;
         }
-        CALLER_FINDER = callerFinder;
     }
 
     private MySafeDelegator() {
@@ -270,20 +293,6 @@ public final class MySafeDelegator {
 
     //////////////////////////////////////////////////////////////////////////
     
-    private static class CallerInfo {
-        
-        private static final int MAX_CALLER_DEPTH = 4;
-        
-        private final Class<?>[] callerClasses;
-        private final String threadName;
-        
-        private CallerInfo(Class<?>[] callerClasses, String threadName) {
-            this.callerClasses = callerClasses;
-            this.threadName = threadName;
-        }
-        
-    }
-    
     private interface CallerFinder {
         
         Class<?> getCallerClass(int depth);
@@ -341,14 +350,14 @@ public final class MySafeDelegator {
         }
         Thread callerThread = Thread.currentThread();
         callerInfoKey = calculateCallerKey(callerInfoKey, callerThread.hashCode());
-        CallerInfo callerInfo = CALLER_INFO_MAP.get(callerInfoKey);
+        CallerInfo callerInfo = CALLER_INFO_STORAGE.getCallerInfo(callerInfoKey);
         if (callerInfo == null) {
             Class<?>[] callerClasses = new Class<?>[i];
             for (int j = 0; j < i; j++) {
                 callerClasses[j] = CALLER_FINDER.getCallerClass(skipCallerCount + j);
             }
-            CallerInfo newCallerInfo = new CallerInfo(callerClasses, callerThread.getName());
-            CallerInfo existingCallerInfo = CALLER_INFO_MAP.putIfAbsent(callerInfoKey, newCallerInfo);
+            CallerInfo newCallerInfo = new CallerInfo(callerInfoKey, callerClasses, callerThread.getName());
+            CallerInfo existingCallerInfo = CALLER_INFO_STORAGE.putCallerInfo(callerInfoKey, newCallerInfo);
             if (existingCallerInfo == null) {
                 callerInfo = newCallerInfo;
             } else {
@@ -361,11 +370,11 @@ public final class MySafeDelegator {
     private static void saveCallerInfoOnAllocation(long address, int skipCallerCount) {
         skipCallerCount++;
         CallerInfo callerInfo = getOrCreateCallerInfo(skipCallerCount);
-        ALLOCATION_CALLER_INFO_MAP.put(address, callerInfo);
+        CALLER_INFO_STORAGE.connectAddressWithCallerInfo(address, callerInfo);
     }
     
     private static void deleteCallerInfoOnFree(long address) {
-        ALLOCATION_CALLER_INFO_MAP.remove(address);
+        CALLER_INFO_STORAGE.disconnectAddressFromCallerInfo(address);
     }
     
     //////////////////////////////////////////////////////////////////////////
@@ -605,7 +614,7 @@ public final class MySafeDelegator {
                 dump(ps, unsafe, address, size);
                 if (CALLER_INFO_MONITORING_MODE_ENABLED) {
                     ps.println("Caller Info :");
-                    CallerInfo callerInfo = ALLOCATION_CALLER_INFO_MAP.get(address);
+                    CallerInfo callerInfo = CALLER_INFO_STORAGE.findCallerInfoByConnectedAddress(address);
                     if (callerInfo == null) {
                         ps.println("\tNo related caller info!");
                     } else {

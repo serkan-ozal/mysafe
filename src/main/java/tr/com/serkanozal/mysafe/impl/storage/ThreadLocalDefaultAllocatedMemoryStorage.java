@@ -18,8 +18,9 @@ package tr.com.serkanozal.mysafe.impl.storage;
 import sun.misc.Unsafe;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
-import tr.com.serkanozal.mysafe.impl.storage.Long2LongHashMap.LongLongConsumer;
-import tr.com.serkanozal.mysafe.impl.storage.Long2LongHashMap.LongLongCursor;
+import tr.com.serkanozal.mysafe.impl.util.Long2LongHashMap;
+import tr.com.serkanozal.mysafe.impl.util.Long2LongHashMap.LongLongConsumer;
+import tr.com.serkanozal.mysafe.impl.util.Long2LongHashMap.LongLongCursor;
 
 public class ThreadLocalDefaultAllocatedMemoryStorage extends AbstractThreadLocalAllocatedMemoryStorage {
 
