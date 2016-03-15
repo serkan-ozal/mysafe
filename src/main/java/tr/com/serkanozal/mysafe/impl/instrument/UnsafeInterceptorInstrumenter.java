@@ -37,6 +37,10 @@ class UnsafeInterceptorInstrumenter implements MySafeInstrumenter {
     
     @Override
     public byte[] instrument(String className, byte[] classData) {
+        if (!SAFE_MEMORY_ACCESS_MODE_ENABLED && USE_CUSTOM_MEMORY_MANAGEMENT) {
+            return classData;
+        }
+        
         if (className.startsWith("tr.com.serkanozal.mysafe.impl")
                 || className.startsWith("org.cliffc.high_scale_lib")
                 || "sun.misc.Unsafe".equals(className)) {

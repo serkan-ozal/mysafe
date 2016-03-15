@@ -40,18 +40,38 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
 
     private final boolean USE_CUSTOM_MEMORY_MANAGEMENT = 
             Boolean.getBoolean("mysafe.useCustomMemoryManagement");
-    private final ClassPool CP = ClassPool.getDefault();
-    private final Map<String, AllocationPointConfig> CONFIGURED_ALLOCATION_POINTS = 
-            new HashMap<String, AllocationPointConfig>();
-    private final Map<String, FreePointConfig> CONFIGURED_FREE_POINTS = 
-            new HashMap<String, FreePointConfig>();
-    private final Map<String, ReallocationPointConfig> CONFIGURED_REALLOCATION_POINTS = 
-            new HashMap<String, ReallocationPointConfig>();
+    private final String CUSTOM_MEMORY_MANAGEMENT_PACKAGE_PREFIX = 
+            System.getProperty("mysafe.customMemoryManagementPackagePrefix");
+    private final ClassPool CP = new MySafeClassPool();
+    private Map<String, AllocationPointConfig> configuredAllocationPoints;
+    private Map<String, FreePointConfig> configuredFreePoints;
+    private Map<String, ReallocationPointConfig> configuredReallocationPoints;
     
     CustomMemoryManagementInstrumenter() {
         if (USE_CUSTOM_MEMORY_MANAGEMENT) {
             init();
         }
+    }
+    
+    private static class MySafeClassPool extends ClassPool {
+        
+        private MySafeClassPool() {
+            appendSystemPath();
+            importPackage("tr.com.serkanozal.mysafe");
+            importPackage("tr.com.serkanozal.mysafe.impl");
+        }
+        
+        @Override
+        protected void cacheCtClass(String classname, CtClass c, boolean dynamic) {
+            // No caching
+        }
+        
+        @Override
+        protected CtClass removeCached(String classname) {
+            // Because there is no caching
+            return null;
+        }
+        
     }
     
     private void init() {
@@ -84,7 +104,10 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
                         } else {
                             allocationPointConfig = new AllocationPointConfig(Integer.parseInt(propNameParts[2]));
                         }
-                        CONFIGURED_ALLOCATION_POINTS.put(className + "#" + methodName, allocationPointConfig);
+                        if (configuredAllocationPoints == null) {
+                            configuredAllocationPoints = new HashMap<String, AllocationPointConfig>();
+                        }
+                        configuredAllocationPoints.put(className + "#" + methodName, allocationPointConfig);
                         System.out.println("Custom memory allocation point: " + 
                                            "className=" + className + ", methodName=" + methodName);
                     } else if ("FREE_POINT".equals(propValue)) {
@@ -99,7 +122,10 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
                         } else {
                             freePointConfig = new FreePointConfig(Integer.parseInt(propNameParts[2]));
                         }
-                        CONFIGURED_FREE_POINTS.put(className + "#" + methodName, freePointConfig);
+                        if (configuredFreePoints == null) {
+                            configuredFreePoints = new HashMap<String, FreePointConfig>();
+                        }
+                        configuredFreePoints.put(className + "#" + methodName, freePointConfig);
                         System.out.println("Custom memory free point: " + 
                                            "className=" + className + ", methodName=" + methodName);
                     } else if ("REALLOCATION_POINT".equals(propValue)) {
@@ -117,7 +143,10 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
                             reallocationPointConfig = new ReallocationPointConfig(Integer.parseInt(propNameParts[2]),
                                                                                   Integer.parseInt(propNameParts[3]));
                         }
-                        CONFIGURED_REALLOCATION_POINTS.put(className + "#" + methodName, reallocationPointConfig);
+                        if (configuredReallocationPoints == null) {
+                            configuredReallocationPoints = new HashMap<String, ReallocationPointConfig>();
+                        }
+                        configuredReallocationPoints.put(className + "#" + methodName, reallocationPointConfig);
                         System.out.println("Custom memory reallocation point: " + 
                                            "className=" + className + ", methodName=" + methodName);
                     } else {
@@ -132,15 +161,17 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
                                "\"mysafe-config.properties\" file: " + t.getMessage());
             t.printStackTrace();
         }
-        CP.importPackage("tr.com.serkanozal.mysafe");
-        CP.importPackage("tr.com.serkanozal.mysafe.impl");
     }
     
     @Override
     public byte[] instrument(String className, byte[] classData) {
         if (USE_CUSTOM_MEMORY_MANAGEMENT) {
+            if (CUSTOM_MEMORY_MANAGEMENT_PACKAGE_PREFIX != null && !className.startsWith(CUSTOM_MEMORY_MANAGEMENT_PACKAGE_PREFIX)) {
+                return classData;
+            }
             try {
                 CtClass clazz = CP.makeClass(new ByteArrayInputStream(classData));
+                boolean instrumented = false;
                 for (CtMethod method : clazz.getDeclaredMethods()) {
                     AllocationPointConfig allocationPointConfig = null;
                     Object allocationPoint = null;
@@ -148,7 +179,11 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
                     Object freePoint = null;
                     ReallocationPointConfig reallocationPointConfig = null;
                     Object reallocationPoint = null;
-                    if ((allocationPointConfig = CONFIGURED_ALLOCATION_POINTS.get(clazz.getName() + "#" + method.getName())) != null 
+                    if ((
+                            configuredAllocationPoints != null 
+                            && 
+                            (allocationPointConfig = configuredAllocationPoints.get(clazz.getName() + "#" + method.getName())) != null
+                        )    
                         || 
                         (allocationPoint = method.getAnnotation(AllocationPoint.class)) != null) {
                         if (allocationPointConfig == null) {
@@ -156,7 +191,12 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
                             allocationPointConfig = new AllocationPointConfig((Integer) m.invoke(allocationPoint));
                         }
                         instrumentAllocationPoint(clazz, method, allocationPointConfig);
-                    } else if ((freePointConfig = CONFIGURED_FREE_POINTS.get(clazz.getName() + "#" + method.getName())) != null 
+                        instrumented = true;
+                    } else if ((
+                                    configuredFreePoints != null
+                                    &&
+                                    (freePointConfig = configuredFreePoints.get(clazz.getName() + "#" + method.getName())) != null 
+                               )    
                                || 
                                (freePoint = method.getAnnotation(FreePoint.class)) != null) {
                         if (freePointConfig == null) {
@@ -164,7 +204,12 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
                             freePointConfig = new FreePointConfig((Integer) m.invoke(freePoint));
                         }
                         instrumentFreePoint(clazz, method, freePointConfig);
-                    } else if ((reallocationPointConfig = CONFIGURED_REALLOCATION_POINTS.get(clazz.getName() + "#" + method.getName())) != null 
+                        instrumented = true;
+                    } else if ((
+                                    configuredReallocationPoints != null 
+                                    &&
+                                    (reallocationPointConfig = configuredReallocationPoints.get(clazz.getName() + "#" + method.getName())) != null
+                               )    
                                || 
                                (reallocationPoint = method.getAnnotation(ReallocationPoint.class)) != null) {
                         if (reallocationPointConfig == null) {
@@ -176,9 +221,14 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
                                                                 (Integer) m2.invoke(reallocationPoint));
                         }
                         instrumentReallocationPoint(clazz, method, reallocationPointConfig);
+                        instrumented = true;
                     }
                 }
-                return clazz.toBytecode();
+                if (instrumented) {
+                    return clazz.toBytecode();
+                } else {
+                    return classData;
+                }
             } catch (Throwable t) {
                 System.err.println("Skipping instrumentation on " + className + " class. " + 
                                    "Because an error occured while instrumenting " + className + 
