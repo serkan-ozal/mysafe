@@ -32,10 +32,13 @@ import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.IllegalMemoryAccessListener;
 import tr.com.serkanozal.mysafe.MySafe;
 import tr.com.serkanozal.mysafe.MemoryListener;
+import tr.com.serkanozal.mysafe.ParametricThreadLocalMemoryUsageDecider;
+import tr.com.serkanozal.mysafe.ThreadLocalMemoryUsageDecider;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessor;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessorFactory;
 import tr.com.serkanozal.mysafe.impl.storage.DefaultAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.NavigatableAllocatedMemoryStorage;
+import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalAwareAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalDefaultAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalNavigatableAllocatedMemoryStorage;
 import static tr.com.serkanozal.mysafe.AllocatedMemoryStorage.INVALID;
@@ -109,11 +112,51 @@ public final class MySafeDelegator {
             }
         } else {
             if (THREAD_LOCAL_MEMORY_USAGE_PATTERN_EXIST) {
+                AllocatedMemoryStorage threadLocalAllocatedMemoryStorage = null;
+                ThreadLocalMemoryUsageDecider threadLocalMemoryUsageDecider = null;
                 if (safeMemoryAccessModeEnabled) {
-                    ALLOCATED_MEMORY_STORAGE = new ThreadLocalNavigatableAllocatedMemoryStorage(DEFAULT_UNSAFE);
+                    threadLocalAllocatedMemoryStorage = new ThreadLocalNavigatableAllocatedMemoryStorage(DEFAULT_UNSAFE);
                 } else {
-                    ALLOCATED_MEMORY_STORAGE = new ThreadLocalDefaultAllocatedMemoryStorage(DEFAULT_UNSAFE);
+                    threadLocalAllocatedMemoryStorage = new ThreadLocalDefaultAllocatedMemoryStorage(DEFAULT_UNSAFE);
                 }
+                String threadLocalMemoryUsageDeciderConfig = System.getProperty("mysafe.threadLocalMemoryUsageDeciderImpl");
+                if (threadLocalMemoryUsageDeciderConfig != null) {
+                    String[] threadLocalMemoryUsageDeciderConfigParts = threadLocalMemoryUsageDeciderConfig.split(":"); 
+                    String threadLocalMemoryUsageDeciderImplClassName = threadLocalMemoryUsageDeciderConfigParts[0];
+                    try {
+                        @SuppressWarnings("unchecked")
+                        Class<? extends ThreadLocalMemoryUsageDecider> threadLocalMemoryUsageDeciderImplClass = 
+                                (Class<? extends ThreadLocalMemoryUsageDecider>) ClassLoader.getSystemClassLoader().
+                                    loadClass(threadLocalMemoryUsageDeciderImplClassName);
+                        threadLocalMemoryUsageDecider = threadLocalMemoryUsageDeciderImplClass.newInstance();
+                        if (threadLocalMemoryUsageDecider instanceof ParametricThreadLocalMemoryUsageDecider) {
+                            String[] params = new String[threadLocalMemoryUsageDeciderConfigParts.length - 1];
+                            System.arraycopy(threadLocalMemoryUsageDeciderConfigParts, 1, 
+                                             params, 0, 
+                                             params.length);
+                            ((ParametricThreadLocalMemoryUsageDecider) threadLocalMemoryUsageDecider).initWithParameters(params);
+                        }
+                    } catch (Exception e) {
+                        throw new IllegalStateException(
+                                "Couldn't create instance of custom 'ThreadLocalMemoryUsageDecider' implementation: " + 
+                                threadLocalMemoryUsageDeciderImplClassName, e);
+                    }
+                }
+                if (threadLocalMemoryUsageDecider != null) {
+                    AllocatedMemoryStorage globalAllocatedMemoryStorage;
+                    if (safeMemoryAccessModeEnabled) {
+                        globalAllocatedMemoryStorage = new NavigatableAllocatedMemoryStorage();
+                    } else {
+                        globalAllocatedMemoryStorage = new DefaultAllocatedMemoryStorage();
+                    }
+                    ALLOCATED_MEMORY_STORAGE = 
+                            new ThreadLocalAwareAllocatedMemoryStorage(
+                                    globalAllocatedMemoryStorage, 
+                                    threadLocalAllocatedMemoryStorage, 
+                                    threadLocalMemoryUsageDecider);
+                } else {
+                    ALLOCATED_MEMORY_STORAGE = threadLocalAllocatedMemoryStorage;
+                }    
             } else {
                 if (safeMemoryAccessModeEnabled) {
                     ALLOCATED_MEMORY_STORAGE = new NavigatableAllocatedMemoryStorage();

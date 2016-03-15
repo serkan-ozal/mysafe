@@ -27,7 +27,7 @@ public class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
     private final NonBlockingHashMapLong<Long> allocatedMemories;
     
     public DefaultAllocatedMemoryStorage() {
-        this.allocatedMemories = new NonBlockingHashMapLong<Long>(1024 * 1024, false);
+        this.allocatedMemories = new NonBlockingHashMapLong<Long>(1024, false);
     }
 
     @Override
