@@ -1,13 +1,23 @@
 package tr.com.serkanozal.mysafe.impl.callerinfo;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
 import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 
 public class DefaultCallerInfoStorage implements CallerInfoStorage {
 
-    private final NonBlockingHashMapLong<CallerInfo> callerInfoMap =
-            new NonBlockingHashMapLong<CallerInfo>(8, false);
-    private final NonBlockingHashMapLong<CallerInfo> allocationCallerInfoMap =
-            new NonBlockingHashMapLong<CallerInfo>(1024, false);
+    private final ConcurrentMap<Long, CallerInfo> callerInfoMap;
+    private final NonBlockingHashMapLong<Long> allocationCallerInfoMap =
+            new NonBlockingHashMapLong<Long>(1024, false);
+    
+    public DefaultCallerInfoStorage() {
+        this.callerInfoMap = new ConcurrentHashMap<Long, CallerInfo>();
+    }
+    
+    public DefaultCallerInfoStorage(ConcurrentMap<Long, CallerInfo> callerInfoMap) {
+        this.callerInfoMap = callerInfoMap;
+    }
     
     @Override
     public CallerInfo getCallerInfo(long callerInfoKey) {
@@ -26,12 +36,17 @@ public class DefaultCallerInfoStorage implements CallerInfoStorage {
     
     @Override
     public CallerInfo findCallerInfoByConnectedAddress(long address) {
-        return allocationCallerInfoMap.get(address);
+        Long callerInfoKey = allocationCallerInfoMap.get(address);
+        if (callerInfoKey != null) {
+            return callerInfoMap.get(callerInfoKey);
+        } else {
+            return null;
+        }
     }
 
     @Override
-    public void connectAddressWithCallerInfo(long address, CallerInfo callerInfo) {
-        allocationCallerInfoMap.put(address, callerInfo);
+    public void connectAddressWithCallerInfo(long address, long callerInfoKey) {
+        allocationCallerInfoMap.put(address, (Long) callerInfoKey);
     }
 
     @Override

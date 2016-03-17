@@ -15,14 +15,20 @@
  */
 package tr.com.serkanozal.mysafe.impl.callerinfo;
 
+import java.util.concurrent.ConcurrentMap;
+
 import sun.misc.Unsafe;
 import tr.com.serkanozal.mysafe.impl.util.Long2LongHashMap;
-import tr.com.serkanozal.mysafe.impl.util.Long2ObjectHashMap;
 
 public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCallerInfoStorage {
 
     public ThreadLocalDefaultCallerInfoStorage(Unsafe unsafe) {
         super(unsafe);
+    }
+    
+    public ThreadLocalDefaultCallerInfoStorage(Unsafe unsafe, 
+                                               ConcurrentMap<Long, CallerInfo> callerInfoMap) {
+        super(unsafe, callerInfoMap);
     }
 
     @Override
@@ -33,8 +39,6 @@ public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCall
     private class InternalThreadLocalDefaultCallerInfoStorage 
             extends AbstractInternalThreadLocalCallerInfoStorage {
 
-        private final Long2ObjectHashMap<CallerInfo> callerInfoMap =
-                new Long2ObjectHashMap<CallerInfo>();
         private final Long2LongHashMap allocationCallerInfoMap = 
                 new Long2LongHashMap(-1);
  
@@ -43,37 +47,12 @@ public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCall
         }
 
         @Override
-        public CallerInfo getCallerInfo(long callerInfoKey) {
-            return callerInfoMap.get(callerInfoKey);
-        }
-
-        @Override
-        public CallerInfo putCallerInfo(long callerInfoKey, CallerInfo callerInfo) {
-            acquire();
-            try {
-                return callerInfoMap.put(callerInfoKey, callerInfo);
-            } finally {
-                free();
-            }
-        }
-
-        @Override
-        public CallerInfo removeCallerInfo(long callerInfoKey) {
-            acquire();
-            try {
-                return callerInfoMap.remove(callerInfoKey);
-            } finally {
-                free();
-            }    
-        }
-
-        @Override
         public CallerInfo findCallerInfoByConnectedAddress(long address) {
             acquire();
             try {
                 long callerInfoKey = allocationCallerInfoMap.get(address);
                 if (callerInfoKey != -1) {
-                    return callerInfoMap.get(callerInfoKey);
+                    return getCallerInfo(callerInfoKey);
                 } else {
                     return null;
                 }
@@ -83,10 +62,10 @@ public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCall
         }
 
         @Override
-        public void connectAddressWithCallerInfo(long address, CallerInfo callerInfo) {
+        public void connectAddressWithCallerInfo(long address, long callerInfoKey) {
             acquire();
             try {
-                allocationCallerInfoMap.put(address, callerInfo.key);
+                allocationCallerInfoMap.put(address, callerInfoKey);
             } finally {
                 free();
             }

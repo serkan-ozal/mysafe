@@ -24,8 +24,8 @@ public interface CallerInfoStorage {
     CallerInfo removeCallerInfo(long callerInfoKey);
     
     CallerInfo findCallerInfoByConnectedAddress(long address);
-    
-    void connectAddressWithCallerInfo(long address, CallerInfo callerInfo);
+
+    void connectAddressWithCallerInfo(long address, long callerInfoKey);
     
     void disconnectAddressFromCallerInfo(long address);
     

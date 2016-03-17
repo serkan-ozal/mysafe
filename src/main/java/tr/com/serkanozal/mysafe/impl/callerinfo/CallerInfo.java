@@ -15,18 +15,30 @@
  */
 package tr.com.serkanozal.mysafe.impl.callerinfo;
 
+import java.util.List;
+
 public class CallerInfo {
 
     public static final int MAX_CALLER_DEPTH = 4;
     
     public final long key;
-    public final Class<?>[] callerClasses;
-    public final String threadName;
-    
-    public CallerInfo(long key, Class<?>[] callerClasses, String threadName) {
+    public final List<CallerInfoEntry> callerInfoEntries;
+
+    public CallerInfo(long key, List<CallerInfoEntry> callerInfoEntries) {
         this.key = key;
-        this.callerClasses = callerClasses;
-        this.threadName = threadName;
+        this.callerInfoEntries = callerInfoEntries;
+    }
+    
+    public static class CallerInfoEntry {
+        
+        public final String className;
+        public final String methodName;
+        
+        public CallerInfoEntry(String className, String methodName) {
+            this.className = className;
+            this.methodName = methodName;
+        }
+        
     }
 
 }

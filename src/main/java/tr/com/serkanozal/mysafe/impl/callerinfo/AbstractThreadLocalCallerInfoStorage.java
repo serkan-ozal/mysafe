@@ -26,8 +26,14 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
     private final ConcurrentMap<WeakReference<Thread>, CallerInfoStorage> allCallerInfoStorages =
             new ConcurrentHashMap<WeakReference<Thread>, CallerInfoStorage>();
     private final ThreadLocal<CallerInfoStorage> threadLocalCallerInfoyStorages;
-    
+    private final ConcurrentMap<Long, CallerInfo> callerInfoMap;
+
     public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe) {
+        this(unsafe, null);
+    }
+    
+    public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe, 
+                                                ConcurrentMap<Long, CallerInfo> callerInfoMap) {
         this.threadLocalCallerInfoyStorages = new ThreadLocal<CallerInfoStorage>() {
             @Override
             protected CallerInfoStorage initialValue() {
@@ -37,24 +43,28 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
                 return callerInfoStorage;
             };
         };
+        if (callerInfoMap == null) {
+            this.callerInfoMap = new ConcurrentHashMap<Long, CallerInfo>();
+        } else {
+            this.callerInfoMap = callerInfoMap;
+        }
     }
     
     abstract protected CallerInfoStorage createInternalThreadLocalCallerInfoStorage(Unsafe unsafe);
 
-
     @Override
-    public CallerInfo getCallerInfo(long callerInfoKey) {
-        return threadLocalCallerInfoyStorages.get().getCallerInfo(callerInfoKey);
+    public final CallerInfo getCallerInfo(long callerInfoKey) {
+        return callerInfoMap.get(callerInfoKey);
     }
 
     @Override
-    public CallerInfo putCallerInfo(long callerInfoKey, CallerInfo callerInfo) {
-        return threadLocalCallerInfoyStorages.get().putCallerInfo(callerInfoKey, callerInfo);
+    public final CallerInfo putCallerInfo(long callerInfoKey, CallerInfo callerInfo) {
+        return callerInfoMap.putIfAbsent(callerInfoKey, callerInfo);
     }
 
     @Override
-    public CallerInfo removeCallerInfo(long callerInfoKey) {
-        return threadLocalCallerInfoyStorages.get().removeCallerInfo(callerInfoKey);
+    public final CallerInfo removeCallerInfo(long callerInfoKey) {
+        return callerInfoMap.remove(callerInfoKey);
     }
 
     @Override
@@ -63,8 +73,8 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
     }
 
     @Override
-    public void connectAddressWithCallerInfo(long address, CallerInfo callerInfo) {
-        threadLocalCallerInfoyStorages.get().connectAddressWithCallerInfo(address, callerInfo);
+    public void connectAddressWithCallerInfo(long address, long callerInfoKey) {
+        threadLocalCallerInfoyStorages.get().connectAddressWithCallerInfo(address, callerInfoKey);
     }
 
     @Override
@@ -93,7 +103,6 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
          * From their perspective, they can block each other and they be blocked each other.
          * Also, they can block allocator/disposer thread and they be blocked allocator/disposer thread.
          * But since iterating will not be frequently, we can live with locking in these cases.
-         * 
          */
         @SuppressWarnings("unused")
         private volatile int state = AVAILABLE;
@@ -115,6 +124,24 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
         
         protected void free() {
             state = AVAILABLE;
+        }
+        
+        @Override
+        public final CallerInfo getCallerInfo(long callerInfoKey) {
+            // Should not be called
+            throw new UnsupportedOperationException();
+        }
+        
+        @Override
+        public final CallerInfo putCallerInfo(long callerInfoKey, CallerInfo callerInfo) {
+            // Should not be called
+            throw new UnsupportedOperationException();
+        }
+        
+        @Override
+        public final CallerInfo removeCallerInfo(long callerInfoKey) {
+            // Should not be called
+            throw new UnsupportedOperationException();
         }
 
     }

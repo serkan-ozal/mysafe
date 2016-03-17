@@ -16,8 +16,9 @@
 package tr.com.serkanozal.mysafe.impl;
 
 import java.io.PrintStream;
-import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -25,7 +26,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.log4j.Logger;
 
 import sun.misc.Unsafe;
-import sun.reflect.Reflection;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.IllegalMemoryAccessListener;
@@ -36,10 +36,12 @@ import tr.com.serkanozal.mysafe.ThreadLocalMemoryUsageDecider;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessor;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessorFactory;
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfo;
+import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfo.CallerInfoEntry;
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfoStorage;
 import tr.com.serkanozal.mysafe.impl.callerinfo.DefaultCallerInfoStorage;
 import tr.com.serkanozal.mysafe.impl.callerinfo.ThreadLocalAwareCallerInfoStorage;
 import tr.com.serkanozal.mysafe.impl.callerinfo.ThreadLocalDefaultCallerInfoStorage;
+import tr.com.serkanozal.mysafe.impl.instrument.CallerInfoInjector;
 import tr.com.serkanozal.mysafe.impl.storage.DefaultAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.NavigatableAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalAwareAllocatedMemoryStorage;
@@ -64,7 +66,13 @@ public final class MySafeDelegator {
     private static Set<MemoryListener> LISTENERS = 
             Collections.newSetFromMap(new ConcurrentHashMap<MemoryListener, Boolean>());
     private static final CallerInfoStorage CALLER_INFO_STORAGE;
-    private static final CallerFinder CALLER_FINDER;
+    private static final ThreadLocal<ThreadLocalCallerInfo> THREAD_LOCAL_CALLER_INFO_MAP =
+            new ThreadLocal<ThreadLocalCallerInfo>() {
+                protected ThreadLocalCallerInfo initialValue() {
+                    return new ThreadLocalCallerInfo();
+                };
+            };
+    private static final CallerInfoInjector CALLER_INFO_INJECTOR = new CallerInfoInjector();
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
     
@@ -95,8 +103,19 @@ public final class MySafeDelegator {
         DEFAULT_UNSAFE = MySafe.getUnsafe(); 
         
         UNSAFE_MEMORY_ACCESSOR = UnsafeMemoryAccessorFactory.createUnsafeMemoryAccessor(DEFAULT_UNSAFE);
-        MEMORY_ACCESS_LOCK = new MemoryAccessLock(DEFAULT_UNSAFE);
         OBJECT_REFERENCE_SIZE = DEFAULT_UNSAFE.arrayIndexScale(Object[].class);
+        
+        boolean concurrentMemoryAccessCheckEnabled;
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+            concurrentMemoryAccessCheckEnabled = Boolean.getBoolean("mysafe.enableConcurrentMemoryAccessCheck");
+        } else {
+            concurrentMemoryAccessCheckEnabled = false;
+        }
+        if (concurrentMemoryAccessCheckEnabled) {
+            MEMORY_ACCESS_LOCK = new MemoryAccessLock(DEFAULT_UNSAFE);
+        } else {
+            MEMORY_ACCESS_LOCK = null;
+        }
         
         ThreadLocalMemoryUsageDecider threadLocalMemoryUsageDecider = null;
         String threadLocalMemoryUsageDeciderConfig = System.getProperty("mysafe.threadLocalMemoryUsageDeciderImpl");
@@ -186,37 +205,17 @@ public final class MySafeDelegator {
         }
         
         if (CALLER_INFO_MONITORING_MODE_ENABLED) {
-            CallerFinder callerFinder = null;
-            try {
-                Class<?> reflectionClass = Class.forName("sun.reflect.Reflection");
-                Method getCallerClassMethod = reflectionClass.getMethod("getCallerClass", int.class);
-                if (getCallerClassMethod != null) {
-                    callerFinder = new ReflectionBasedCallerFinder();
-                } else {
-                    callerFinder = new SecurityManagerBasedCallerFinder();
-                }
-            } catch (Throwable t) {
-                callerFinder = new SecurityManagerBasedCallerFinder();
-            }
-            CALLER_FINDER = callerFinder;
-            
             if (THREAD_LOCAL_MEMORY_USAGE_PATTERN_EXIST) {
-                CallerInfoStorage threadLocalCallerInfoStorage = new ThreadLocalDefaultCallerInfoStorage(DEFAULT_UNSAFE);
                 if (threadLocalMemoryUsageDecider != null) {
-                    CallerInfoStorage globalCallerInfoStorage = new DefaultCallerInfoStorage();
                     CALLER_INFO_STORAGE = 
-                            new ThreadLocalAwareCallerInfoStorage(
-                                    globalCallerInfoStorage, 
-                                    threadLocalCallerInfoStorage, 
-                                    threadLocalMemoryUsageDecider);
+                            new ThreadLocalAwareCallerInfoStorage(DEFAULT_UNSAFE, threadLocalMemoryUsageDecider);
                 } else {
-                    CALLER_INFO_STORAGE = threadLocalCallerInfoStorage;
+                    CALLER_INFO_STORAGE = new ThreadLocalDefaultCallerInfoStorage(DEFAULT_UNSAFE);;
                 }    
             } else {
                 CALLER_INFO_STORAGE = new DefaultCallerInfoStorage();
             }
         } else {
-            CALLER_FINDER = null;
             CALLER_INFO_STORAGE = null;
         }
     }
@@ -293,84 +292,61 @@ public final class MySafeDelegator {
 
     //////////////////////////////////////////////////////////////////////////
     
-    private interface CallerFinder {
-        
-        Class<?> getCallerClass(int depth);
-        
+    private static class ThreadLocalCallerInfo {
+        private long callerInfoKey;
     }
     
-    private static class ReflectionBasedCallerFinder 
-            implements CallerFinder {
+    public static void startThreadLocalCallTracking(long callerInfoKey) {
+        THREAD_LOCAL_CALLER_INFO_MAP.get().callerInfoKey = callerInfoKey;
+    }
+    
+    public static void finishThreadLocalCallTracking() {
+        THREAD_LOCAL_CALLER_INFO_MAP.get().callerInfoKey = 0;
+    }
 
-        @SuppressWarnings("deprecation")
-        @Override
-        public Class<?> getCallerClass(int depth) {
-            return Reflection.getCallerClass(depth + 2);
-        }
-        
-    }
-    
-    private static class SecurityManagerBasedCallerFinder 
-            extends SecurityManager 
-            implements CallerFinder {
-
-        @Override
-        public Class<?> getCallerClass(int depth) {
-            depth++;
-            Class<?>[] classContext = getClassContext();
-            if (depth < classContext.length) {
-                return classContext[depth];
-            } else {
-                return null;
-            }
-        }
-
-    }
-    
-    private static long calculateCallerKey(long callerInfoKey, int currentKey) {
-        final long k = callerInfoKey ^ currentKey;
-        // phi = 2^64 / goldenRatio
-        final long phi = 0x9E3779B97F4A7C15L;
-        long h = k * phi;
-        h ^= h >>> 32;
-        return h ^ (h >>> 16);
-    }
-    
-    private static CallerInfo getOrCreateCallerInfo(int skipCallerCount) {
-        skipCallerCount++;
-        long callerInfoKey = 0L;
-        int i;
-        for (i = 0; i < CallerInfo.MAX_CALLER_DEPTH; i++) {
-            Class<?> callerClass = CALLER_FINDER.getCallerClass(skipCallerCount + i);
-            if (callerClass != null) {
-                callerInfoKey = calculateCallerKey(callerInfoKey, callerClass.hashCode());
-            } else {
-                break;
-            }
-        }
-        Thread callerThread = Thread.currentThread();
-        callerInfoKey = calculateCallerKey(callerInfoKey, callerThread.hashCode());
-        CallerInfo callerInfo = CALLER_INFO_STORAGE.getCallerInfo(callerInfoKey);
-        if (callerInfo == null) {
-            Class<?>[] callerClasses = new Class<?>[i];
-            for (int j = 0; j < i; j++) {
-                callerClasses[j] = CALLER_FINDER.getCallerClass(skipCallerCount + j);
-            }
-            CallerInfo newCallerInfo = new CallerInfo(callerInfoKey, callerClasses, callerThread.getName());
-            CallerInfo existingCallerInfo = CALLER_INFO_STORAGE.putCallerInfo(callerInfoKey, newCallerInfo);
-            if (existingCallerInfo == null) {
-                callerInfo = newCallerInfo;
-            } else {
-                callerInfo = existingCallerInfo;
-            }
-        }
-        return callerInfo;
-    }
-    
     private static void saveCallerInfoOnAllocation(long address, int skipCallerCount) {
         skipCallerCount++;
-        CallerInfo callerInfo = getOrCreateCallerInfo(skipCallerCount);
-        CALLER_INFO_STORAGE.connectAddressWithCallerInfo(address, callerInfo);
+        ThreadLocalCallerInfo threadLocalCallerInfo = THREAD_LOCAL_CALLER_INFO_MAP.get();
+        long callerInfoKey = threadLocalCallerInfo.callerInfoKey;
+        if (callerInfoKey == 0) {
+            // New call path
+            StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
+            Class<?> classAtHeadOfCallPath = null;
+            String methodNameAtHeadOfCallPath = null;
+            List<CallerInfoEntry> callerInfoEntries = 
+                    new ArrayList<CallerInfoEntry>(CallerInfo.MAX_CALLER_DEPTH);
+            for (int i = 0; i < CallerInfo.MAX_CALLER_DEPTH && i + skipCallerCount < stackTraceElements.length; i++) {
+                StackTraceElement stackTraceElement = stackTraceElements[i + skipCallerCount];
+                try {
+                    classAtHeadOfCallPath = Class.forName(stackTraceElement.getClassName());
+                    // If it is not loaded by bootloader
+                    if (classAtHeadOfCallPath.getClassLoader() != null) {
+                        methodNameAtHeadOfCallPath = stackTraceElement.getMethodName();
+                        CallerInfoEntry callerInfoEntry = 
+                                new CallerInfoEntry(
+                                        stackTraceElement.getClassName(), 
+                                        stackTraceElement.getMethodName());
+                        callerInfoEntries.add(callerInfoEntry);
+                    } else {
+                        classAtHeadOfCallPath = null;
+                    }
+                } catch (ClassNotFoundException e) {
+                    LOGGER.error(e);
+                    break;
+                }
+            }
+            CallerInfo callerInfo = null;
+            for (;;) {
+                callerInfoKey = System.nanoTime();
+                callerInfo = new CallerInfo(callerInfoKey, callerInfoEntries);
+                if (CALLER_INFO_STORAGE.putCallerInfo(callerInfoKey, callerInfo) == null) {
+                    break;
+                }
+            }
+            CALLER_INFO_INJECTOR.injectCallerInfo(classAtHeadOfCallPath, methodNameAtHeadOfCallPath, callerInfoKey);
+            threadLocalCallerInfo.callerInfoKey = callerInfoKey;
+        }
+        CALLER_INFO_STORAGE.connectAddressWithCallerInfo(address, callerInfoKey);
     }
     
     private static void deleteCallerInfoOnFree(long address) {
@@ -437,13 +413,13 @@ public final class MySafeDelegator {
     }
     
     private static void doFreeMemory(Unsafe unsafe, long address) {
-        if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && MEMORY_ACCESS_LOCK != null) {
             MEMORY_ACCESS_LOCK.acquireFreeLock();
         }    
         try {
             unsafe.freeMemory(address);
         } finally {
-            if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+            if (SAFE_MEMORY_ACCESS_MODE_ENABLED && MEMORY_ACCESS_LOCK != null) {
                 MEMORY_ACCESS_LOCK.releaseFreeLock();
             }     
         }
@@ -519,13 +495,13 @@ public final class MySafeDelegator {
     }
     
     private static long doReallocateMemory(Unsafe unsafe, long oldAddress, long newSize) {
-        if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && MEMORY_ACCESS_LOCK != null) {
             MEMORY_ACCESS_LOCK.acquireFreeLock();
         }   
         try {
             return unsafe.reallocateMemory(oldAddress, newSize);
         } finally {
-            if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+            if (SAFE_MEMORY_ACCESS_MODE_ENABLED && MEMORY_ACCESS_LOCK != null) {
                 MEMORY_ACCESS_LOCK.releaseFreeLock();
             }
         }
@@ -613,15 +589,13 @@ public final class MySafeDelegator {
                 ps.println("Dump        :");
                 dump(ps, unsafe, address, size);
                 if (CALLER_INFO_MONITORING_MODE_ENABLED) {
-                    ps.println("Caller Info :");
+                    ps.println("Call Path   :");
                     CallerInfo callerInfo = CALLER_INFO_STORAGE.findCallerInfoByConnectedAddress(address);
                     if (callerInfo == null) {
                         ps.println("\tNo related caller info!");
                     } else {
-                        ps.println("\tCaller thread name : " + callerInfo.threadName);
-                        ps.println("\tCaller classes     : ");
-                        for (Class<?> callerClass : callerInfo.callerClasses) {
-                            ps.println("\t\t|- " + callerClass);
+                        for (CallerInfoEntry callerInfoEntry : callerInfo.callerInfoEntries) {
+                            ps.println("\t|- " + callerInfoEntry.className + "::" + callerInfoEntry.methodName);
                         }
                     }
                 }
@@ -666,9 +640,13 @@ public final class MySafeDelegator {
     private static void checkMemoryAccess(long address, long size, 
             IllegalMemoryAccessListener.MemoryAccessType memoryAccessType) {
         if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
-            MEMORY_ACCESS_LOCK.acquireAccessLock();
+            if (MEMORY_ACCESS_LOCK != null) {
+                MEMORY_ACCESS_LOCK.acquireAccessLock();
+            }    
             if (!ALLOCATED_MEMORY_STORAGE.contains(address, size)) {
-                MEMORY_ACCESS_LOCK.releaseAccessLock();
+                if (MEMORY_ACCESS_LOCK != null) {
+                    MEMORY_ACCESS_LOCK.releaseAccessLock();
+                }    
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             address, size,  memoryAccessType);
@@ -682,9 +660,13 @@ public final class MySafeDelegator {
     
     private static void checkMemoryAccess(long sourceAddress, long destinationAddress, long size) {
         if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
-            MEMORY_ACCESS_LOCK.acquireAccessLock();
+            if (MEMORY_ACCESS_LOCK != null) {
+                MEMORY_ACCESS_LOCK.acquireAccessLock();
+            }
             if (!ALLOCATED_MEMORY_STORAGE.contains(sourceAddress, size)) {
-                MEMORY_ACCESS_LOCK.releaseAccessLock();
+                if (MEMORY_ACCESS_LOCK != null) {
+                    MEMORY_ACCESS_LOCK.releaseAccessLock();
+                } 
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             sourceAddress, size,  READ);
@@ -695,7 +677,9 @@ public final class MySafeDelegator {
                 
             }
             if (!ALLOCATED_MEMORY_STORAGE.contains(destinationAddress, size)) {
-                MEMORY_ACCESS_LOCK.releaseAccessLock();
+                if (MEMORY_ACCESS_LOCK != null) {
+                    MEMORY_ACCESS_LOCK.releaseAccessLock();
+                } 
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             destinationAddress, size,  WRITE);
@@ -708,7 +692,7 @@ public final class MySafeDelegator {
     }
     
     private static void onReturnMemoryAccess() {
-        if (SAFE_MEMORY_ACCESS_MODE_ENABLED) {
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && MEMORY_ACCESS_LOCK != null) {
             MEMORY_ACCESS_LOCK.releaseAccessLock();
         }    
     }
@@ -716,9 +700,13 @@ public final class MySafeDelegator {
     private static void checkMemoryAccess(Object o, long offset, long size,
             IllegalMemoryAccessListener.MemoryAccessType memoryAccessType) {
         if (SAFE_MEMORY_ACCESS_MODE_ENABLED && o == null) {
-            MEMORY_ACCESS_LOCK.acquireAccessLock();
+            if (MEMORY_ACCESS_LOCK != null) {
+                MEMORY_ACCESS_LOCK.acquireAccessLock();
+            }
             if (!ALLOCATED_MEMORY_STORAGE.contains(offset, size)) {
-                MEMORY_ACCESS_LOCK.releaseAccessLock();
+                if (MEMORY_ACCESS_LOCK != null) {
+                    MEMORY_ACCESS_LOCK.releaseAccessLock();
+                }
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             offset, size, memoryAccessType);
@@ -731,7 +719,7 @@ public final class MySafeDelegator {
     }
     
     private static void onReturnMemoryAccess(Object o) {
-        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && o == null) {
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && MEMORY_ACCESS_LOCK != null && o == null) {
             MEMORY_ACCESS_LOCK.releaseAccessLock();
         }
     }
@@ -739,9 +727,13 @@ public final class MySafeDelegator {
     private static void checkMemoryAccess(Object sourceObject, long sourceOffset, 
             Object destinationObject, long destinationOffset, long size) {
         if (SAFE_MEMORY_ACCESS_MODE_ENABLED && sourceObject == null && destinationObject == null) {
-            MEMORY_ACCESS_LOCK.acquireAccessLock();
+            if (MEMORY_ACCESS_LOCK != null) {
+                MEMORY_ACCESS_LOCK.acquireAccessLock();
+            }
             if (!ALLOCATED_MEMORY_STORAGE.contains(sourceOffset, size)) {
-                MEMORY_ACCESS_LOCK.releaseAccessLock();
+                if (MEMORY_ACCESS_LOCK != null) {
+                    MEMORY_ACCESS_LOCK.releaseAccessLock();
+                }
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             sourceOffset, size, READ);
@@ -751,7 +743,9 @@ public final class MySafeDelegator {
                             "at address " + String.format("0x%016x", sourceOffset) + " with size " + size);
             }
             if (!ALLOCATED_MEMORY_STORAGE.contains(destinationOffset, size)) {
-                MEMORY_ACCESS_LOCK.releaseAccessLock();
+                if (MEMORY_ACCESS_LOCK != null) {
+                    MEMORY_ACCESS_LOCK.releaseAccessLock();
+                }
                 if (ILLEGAL_MEMORY_ACCESS_LISTENER != null) {
                     ILLEGAL_MEMORY_ACCESS_LISTENER.onIllegalMemoryAccess(
                             destinationOffset, size, WRITE);
@@ -764,7 +758,8 @@ public final class MySafeDelegator {
     }
 
     private static void onReturnMemoryAccess(Object sourceObject, Object destinationObject) {
-        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && sourceObject == null && destinationObject == null) {
+        if (SAFE_MEMORY_ACCESS_MODE_ENABLED && MEMORY_ACCESS_LOCK != null && 
+                sourceObject == null && destinationObject == null) {
             MEMORY_ACCESS_LOCK.releaseAccessLock();
         }
     }
