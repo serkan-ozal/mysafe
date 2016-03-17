@@ -15,8 +15,11 @@
  */
 package tr.com.serkanozal.mysafe.impl.storage;
 
+import it.unimi.dsi.fastutil.longs.Long2LongAVLTreeMap;
+import it.unimi.dsi.fastutil.longs.Long2LongMap;
+import it.unimi.dsi.fastutil.longs.Long2LongSortedMap;
+
 import java.util.Map;
-import java.util.TreeMap;
 
 import sun.misc.Unsafe;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
@@ -36,8 +39,7 @@ public class ThreadLocalNavigatableAllocatedMemoryStorage extends AbstractThread
     private class InternalThreadLocalNavigatableAllocatedMemoryStorage 
             extends AbstractInternalThreadLocalAllocatedMemoryStorage {
 
-        // TODO Find and use a primitive type supported sorted long2long map 
-        private final TreeMap<Long, Long> allocatedMemories = new TreeMap<Long, Long>();
+        private final Long2LongSortedMap allocatedMemories = new Long2LongAVLTreeMap();
  
         private InternalThreadLocalNavigatableAllocatedMemoryStorage(Unsafe unsafe) {
             super(unsafe);
@@ -45,30 +47,30 @@ public class ThreadLocalNavigatableAllocatedMemoryStorage extends AbstractThread
 
         @Override
         public boolean contains(long address) {
-            Map.Entry<Long, Long> entry = allocatedMemories.floorEntry(address);
+            Long2LongMap.Entry entry = allocatedMemories.tailMap(address).long2LongEntrySet().first();
             if (entry == null) {
                 return false;
             }
-            long startAddress = entry.getKey();
-            long endAddress = startAddress + entry.getValue();
+            long startAddress = entry.getLongKey();
+            long endAddress = startAddress + entry.getLongValue();
             return address >= startAddress && address <= endAddress;
         }
         
         @Override
         public boolean contains(long address, long size) {
-            Map.Entry<Long, Long> entry = allocatedMemories.floorEntry(address);
+            Long2LongMap.Entry entry = allocatedMemories.tailMap(address).long2LongEntrySet().first();
             if (entry == null) {
                 return false;
             }
-            long startAddress = entry.getKey();
-            long endAddress = startAddress + entry.getValue();
+            long startAddress = entry.getLongKey();
+            long endAddress = startAddress + entry.getLongValue();
             return address >= startAddress && (address + size) <= endAddress;
         }
 
         @Override
         public long get(long address) {
-            Long size = allocatedMemories.get(address);
-            return size != null ? size : INVALID;
+            long size = allocatedMemories.get(address);
+            return size != 0 ? size : INVALID;
         }
 
         @Override
@@ -85,8 +87,8 @@ public class ThreadLocalNavigatableAllocatedMemoryStorage extends AbstractThread
         public long remove(long address) {
             acquire();
             try {
-                Long size = allocatedMemories.remove(address);
-                return size != null ? size : INVALID;
+                long size = allocatedMemories.remove(address);
+                return size != 0 ? size : INVALID;
             } finally {
                 free();
             }    
