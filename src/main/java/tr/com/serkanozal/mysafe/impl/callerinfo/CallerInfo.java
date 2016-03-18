@@ -20,6 +20,8 @@ import java.util.List;
 public class CallerInfo {
 
     public static final int MAX_CALLER_DEPTH = 4;
+    public static final long EMPTY_CALLER_INFO_KEY = -1L;
+    public static final CallerInfo  EMPTY_CALLER_INFO = new CallerInfo(EMPTY_CALLER_INFO_KEY, null);
     
     public final long key;
     public final List<CallerInfoEntry> callerInfoEntries;
@@ -33,10 +35,12 @@ public class CallerInfo {
         
         public final String className;
         public final String methodName;
+        public final int lineNumber;
         
-        public CallerInfoEntry(String className, String methodName) {
+        public CallerInfoEntry(String className, String methodName, int lineNumber) {
             this.className = className;
             this.methodName = methodName;
+            this.lineNumber = lineNumber;
         }
         
     }

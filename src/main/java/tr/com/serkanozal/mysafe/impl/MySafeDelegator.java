@@ -297,7 +297,10 @@ public final class MySafeDelegator {
     }
     
     public static void startThreadLocalCallTracking(long callerInfoKey) {
-        THREAD_LOCAL_CALLER_INFO_MAP.get().callerInfoKey = callerInfoKey;
+        ThreadLocalCallerInfo threadLocalCallerInfo = THREAD_LOCAL_CALLER_INFO_MAP.get();
+        if (threadLocalCallerInfo.callerInfoKey == 0) {
+            threadLocalCallerInfo.callerInfoKey = callerInfoKey;
+        }   
     }
     
     public static void finishThreadLocalCallTracking() {
@@ -313,37 +316,53 @@ public final class MySafeDelegator {
             StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
             Class<?> classAtHeadOfCallPath = null;
             String methodNameAtHeadOfCallPath = null;
+            int lineNumberAtHeadOfCallPath = -1;
             List<CallerInfoEntry> callerInfoEntries = 
                     new ArrayList<CallerInfoEntry>(CallerInfo.MAX_CALLER_DEPTH);
             for (int i = 0; i < CallerInfo.MAX_CALLER_DEPTH && i + skipCallerCount < stackTraceElements.length; i++) {
                 StackTraceElement stackTraceElement = stackTraceElements[i + skipCallerCount];
                 try {
-                    classAtHeadOfCallPath = Class.forName(stackTraceElement.getClassName());
-                    // If it is not loaded by bootloader
-                    if (classAtHeadOfCallPath.getClassLoader() != null) {
+                    Class<?> clazz = classAtHeadOfCallPath = Class.forName(stackTraceElement.getClassName());
+                    // If this method will be instrumented,
+                    //      - `MySafeDelegator` should be known by the caller classloader
+                    //      - Caller method must not be native method
+                    if (classAtHeadOfCallPath.getClassLoader().loadClass(MySafeDelegator.class.getName()) != null
+                        &&
+                        !stackTraceElement.isNativeMethod()) {
+                        classAtHeadOfCallPath = clazz;
                         methodNameAtHeadOfCallPath = stackTraceElement.getMethodName();
+                        lineNumberAtHeadOfCallPath = stackTraceElement.getLineNumber();
+                        
                         CallerInfoEntry callerInfoEntry = 
                                 new CallerInfoEntry(
                                         stackTraceElement.getClassName(), 
-                                        stackTraceElement.getMethodName());
+                                        stackTraceElement.getMethodName(),
+                                        stackTraceElement.getLineNumber());
                         callerInfoEntries.add(callerInfoEntry);
-                    } else {
-                        classAtHeadOfCallPath = null;
                     }
                 } catch (ClassNotFoundException e) {
                     LOGGER.error(e);
-                    break;
                 }
             }
-            CallerInfo callerInfo = null;
-            for (;;) {
-                callerInfoKey = System.nanoTime();
-                callerInfo = new CallerInfo(callerInfoKey, callerInfoEntries);
-                if (CALLER_INFO_STORAGE.putCallerInfo(callerInfoKey, callerInfo) == null) {
-                    break;
+            if (classAtHeadOfCallPath == null) {
+                callerInfoKey = CallerInfo.EMPTY_CALLER_INFO_KEY;
+                CALLER_INFO_STORAGE.putCallerInfo(callerInfoKey, CallerInfo.EMPTY_CALLER_INFO);
+                LOGGER.warn("No available instrumentation point for caller info tracking. " +
+                            "Call path will be evaluated as empty call path.");
+            } else {
+                CallerInfo callerInfo = null;
+                for (;;) {
+                    callerInfoKey = System.nanoTime();
+                    callerInfo = new CallerInfo(callerInfoKey, callerInfoEntries);
+                    if (CALLER_INFO_STORAGE.putCallerInfo(callerInfoKey, callerInfo) == null) {
+                        break;
+                    }
                 }
-            }
-            CALLER_INFO_INJECTOR.injectCallerInfo(classAtHeadOfCallPath, methodNameAtHeadOfCallPath, callerInfoKey);
+                CALLER_INFO_INJECTOR.injectCallerInfo(classAtHeadOfCallPath, 
+                                                      methodNameAtHeadOfCallPath, 
+                                                      lineNumberAtHeadOfCallPath, 
+                                                      callerInfoKey);
+            }    
             threadLocalCallerInfo.callerInfoKey = callerInfoKey;
         }
         CALLER_INFO_STORAGE.connectAddressWithCallerInfo(address, callerInfoKey);
@@ -593,9 +612,13 @@ public final class MySafeDelegator {
                     CallerInfo callerInfo = CALLER_INFO_STORAGE.findCallerInfoByConnectedAddress(address);
                     if (callerInfo == null) {
                         ps.println("\tNo related caller info!");
+                    } else if (callerInfo == CallerInfo.EMPTY_CALLER_INFO) {
+                        ps.println("\tUnknown caller info because of not applicable instrumentation!");
                     } else {
                         for (CallerInfoEntry callerInfoEntry : callerInfo.callerInfoEntries) {
-                            ps.println("\t|- " + callerInfoEntry.className + "::" + callerInfoEntry.methodName);
+                            ps.println("\t|- " + callerInfoEntry.className + "." + 
+                                       callerInfoEntry.methodName + ":" +
+                                       callerInfoEntry.lineNumber);
                         }
                     }
                 }
