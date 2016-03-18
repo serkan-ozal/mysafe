@@ -294,17 +294,23 @@ public final class MySafeDelegator {
     
     private static class ThreadLocalCallerInfo {
         private long callerInfoKey;
+        private int callerDepth;
     }
     
-    public static void startThreadLocalCallTracking(long callerInfoKey) {
+    public static void startThreadLocalCallTracking(long callerInfoKey, int callerDepth) {
         ThreadLocalCallerInfo threadLocalCallerInfo = THREAD_LOCAL_CALLER_INFO_MAP.get();
-        if (threadLocalCallerInfo.callerInfoKey == 0) {
+        if (callerDepth >= threadLocalCallerInfo.callerDepth) {
             threadLocalCallerInfo.callerInfoKey = callerInfoKey;
+            threadLocalCallerInfo.callerDepth = callerDepth;
         }   
     }
     
-    public static void finishThreadLocalCallTracking() {
-        THREAD_LOCAL_CALLER_INFO_MAP.get().callerInfoKey = 0;
+    public static void finishThreadLocalCallTracking(int callerDepth) {
+        ThreadLocalCallerInfo threadLocalCallerInfo = THREAD_LOCAL_CALLER_INFO_MAP.get();
+        if (callerDepth >= threadLocalCallerInfo.callerDepth) {
+            threadLocalCallerInfo.callerInfoKey = 0;
+            threadLocalCallerInfo.callerDepth = 0;
+        }
     }
 
     private static void saveCallerInfoOnAllocation(long address, int skipCallerCount) {
@@ -313,12 +319,15 @@ public final class MySafeDelegator {
         long callerInfoKey = threadLocalCallerInfo.callerInfoKey;
         if (callerInfoKey == 0) {
             // New call path
+            LOGGER.debug("A new call path has been detected ...");
             StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
             Class<?> classAtHeadOfCallPath = null;
             String methodNameAtHeadOfCallPath = null;
             int lineNumberAtHeadOfCallPath = -1;
+            int depthAtHeadOfCallPath = -1;
             List<CallerInfoEntry> callerInfoEntries = 
                     new ArrayList<CallerInfoEntry>(CallerInfo.MAX_CALLER_DEPTH);
+            
             for (int i = 0; i < CallerInfo.MAX_CALLER_DEPTH && i + skipCallerCount < stackTraceElements.length; i++) {
                 StackTraceElement stackTraceElement = stackTraceElements[i + skipCallerCount];
                 try {
@@ -332,6 +341,7 @@ public final class MySafeDelegator {
                         classAtHeadOfCallPath = clazz;
                         methodNameAtHeadOfCallPath = stackTraceElement.getMethodName();
                         lineNumberAtHeadOfCallPath = stackTraceElement.getLineNumber();
+                        depthAtHeadOfCallPath = i + 1;
                         
                         CallerInfoEntry callerInfoEntry = 
                                 new CallerInfoEntry(
@@ -339,6 +349,10 @@ public final class MySafeDelegator {
                                         stackTraceElement.getMethodName(),
                                         stackTraceElement.getLineNumber());
                         callerInfoEntries.add(callerInfoEntry);
+                        
+                        LOGGER.debug("\t- " + stackTraceElement.getClassName() + "." + 
+                                     stackTraceElement.getMethodName() + ":" + 
+                                     stackTraceElement.getLineNumber());
                     }
                 } catch (ClassNotFoundException e) {
                     LOGGER.error(e);
@@ -358,10 +372,12 @@ public final class MySafeDelegator {
                         break;
                     }
                 }
-                CALLER_INFO_INJECTOR.injectCallerInfo(classAtHeadOfCallPath, 
-                                                      methodNameAtHeadOfCallPath, 
-                                                      lineNumberAtHeadOfCallPath, 
-                                                      callerInfoKey);
+                callerInfoKey = 
+                        CALLER_INFO_INJECTOR.injectCallerInfo(classAtHeadOfCallPath, 
+                                                              methodNameAtHeadOfCallPath, 
+                                                              lineNumberAtHeadOfCallPath, 
+                                                              callerInfoKey, 
+                                                              depthAtHeadOfCallPath);
             }    
             threadLocalCallerInfo.callerInfoKey = callerInfoKey;
         }

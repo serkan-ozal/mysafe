@@ -15,10 +15,12 @@
  */
 package tr.com.serkanozal.mysafe.impl.classloader;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.ByteBuffer;
@@ -29,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.jar.Manifest;
 
 import sun.misc.Resource;
+import sun.net.www.ParseUtil;
 import tr.com.serkanozal.mysafe.impl.instrument.MySafeInstrumenter;
 import tr.com.serkanozal.mysafe.impl.util.ClasspathUtil;
 
@@ -90,6 +93,33 @@ public class MySafeClassLoader extends URLClassLoader {
         }
         
         return super.loadClass(name);
+    }
+    
+    private static URL getFileURL(File file) {
+        try {
+            file = file.getCanonicalFile();
+        } catch (IOException e) {}
+
+        try {
+            return ParseUtil.fileToEncodedURL(file);
+        } catch (MalformedURLException e) {
+            // Should never happen since we specify the protocol...
+            throw new InternalError();
+        }
+    }
+    
+    /**
+     * This class loader supports dynamic additions to the class path
+     * at runtime.
+     *
+     * @see java.lang.instrument.Instrumentation#appendToSystemClassPathSearch
+     */
+    @SuppressWarnings("unused")
+    private void appendToClassPathForInstrumentation(String path) {
+        assert(Thread.holdsLock(this));
+
+        // addURL is a no-op if path already contains the URL
+        super.addURL( getFileURL(new File(path)) );
     }
 
     private static class MySafeAwareUrlClasspath extends sun.misc.URLClassPath {

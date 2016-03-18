@@ -27,7 +27,7 @@ import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 
 abstract class AbstractThreadLocalAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
-    private final ConcurrentMap<WeakReference<Thread>, AllocatedMemoryStorage> allAllocatedMemoryStorages =
+    protected final ConcurrentMap<WeakReference<Thread>, AllocatedMemoryStorage> allAllocatedMemoryStorages =
             new ConcurrentHashMap<WeakReference<Thread>, AllocatedMemoryStorage>();
     private final ThreadLocal<AllocatedMemoryStorage> threadLocalAllocatedMemoryStorages;
     

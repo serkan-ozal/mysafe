@@ -52,7 +52,7 @@ public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCall
             try {
                 long callerInfoKey = allocationCallerInfoMap.get(address);
                 if (callerInfoKey != -1) {
-                    return getCallerInfo(callerInfoKey);
+                    return ThreadLocalDefaultCallerInfoStorage.this.getCallerInfo(callerInfoKey);
                 } else {
                     return null;
                 }

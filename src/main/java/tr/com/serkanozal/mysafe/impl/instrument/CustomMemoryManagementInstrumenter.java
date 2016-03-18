@@ -51,6 +51,8 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         if (USE_CUSTOM_MEMORY_MANAGEMENT) {
             init();
         }
+        CP.importPackage("tr.com.serkanozal.mysafe");
+        CP.importPackage("tr.com.serkanozal.mysafe.impl");
     }
     
     private static class MySafeClassPool extends ClassPool {

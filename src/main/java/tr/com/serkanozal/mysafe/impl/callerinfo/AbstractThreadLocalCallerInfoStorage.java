@@ -16,6 +16,8 @@
 package tr.com.serkanozal.mysafe.impl.callerinfo;
 
 import java.lang.ref.WeakReference;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -25,7 +27,7 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
 
     private final ConcurrentMap<WeakReference<Thread>, CallerInfoStorage> allCallerInfoStorages =
             new ConcurrentHashMap<WeakReference<Thread>, CallerInfoStorage>();
-    private final ThreadLocal<CallerInfoStorage> threadLocalCallerInfoyStorages;
+    private final ThreadLocal<CallerInfoStorage> threadLocalCallerInfoStorages;
     private final ConcurrentMap<Long, CallerInfo> callerInfoMap;
 
     public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe) {
@@ -34,7 +36,7 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
     
     public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe, 
                                                 ConcurrentMap<Long, CallerInfo> callerInfoMap) {
-        this.threadLocalCallerInfoyStorages = new ThreadLocal<CallerInfoStorage>() {
+        this.threadLocalCallerInfoStorages = new ThreadLocal<CallerInfoStorage>() {
             @Override
             protected CallerInfoStorage initialValue() {
                 CallerInfoStorage callerInfoStorage = createInternalThreadLocalCallerInfoStorage(unsafe);
@@ -69,17 +71,33 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
 
     @Override
     public CallerInfo findCallerInfoByConnectedAddress(long address) {
-        return threadLocalCallerInfoyStorages.get().findCallerInfoByConnectedAddress(address);
+        Iterator<Map.Entry<WeakReference<Thread>, CallerInfoStorage>> iter = 
+                allCallerInfoStorages.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<WeakReference<Thread>, CallerInfoStorage> entry = iter.next();
+            WeakReference<Thread> threadRef = entry.getKey();
+            Thread thread = threadRef.get();
+            if (thread == null || !thread.isAlive()) {
+                iter.remove();
+            } else {
+                CallerInfoStorage callerInfoStorage = entry.getValue();
+                CallerInfo callerInfo = callerInfoStorage.findCallerInfoByConnectedAddress(address);
+                if (callerInfo != null) {
+                    return callerInfo;
+                }
+            }
+        }
+        return null;
     }
 
     @Override
     public void connectAddressWithCallerInfo(long address, long callerInfoKey) {
-        threadLocalCallerInfoyStorages.get().connectAddressWithCallerInfo(address, callerInfoKey);
+        threadLocalCallerInfoStorages.get().connectAddressWithCallerInfo(address, callerInfoKey);
     }
 
     @Override
     public void disconnectAddressFromCallerInfo(long address) {
-        threadLocalCallerInfoyStorages.get().disconnectAddressFromCallerInfo(address);
+        threadLocalCallerInfoStorages.get().disconnectAddressFromCallerInfo(address);
     }
     
     protected abstract class AbstractInternalThreadLocalCallerInfoStorage implements CallerInfoStorage {
