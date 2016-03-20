@@ -58,7 +58,7 @@ Latest version of **MySafe** is `2.0-SNAPSHOT`.
 
 * **`mysafe.threadLocalMemoryUsagePatternExist`:** ???
 
-* **`mysafe.threadLocalMemoryUsageDeciderImpl`:** ???
+* **`mysafe.threadLocalMemoryUsageDeciderImpl`:** Specifies the `ThreadLocalMemoryUsageDecider` implementation to be used for deciding which threads use memory as thread-local and which ones use as global. This property is used when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled. By default all threads are assumed as they are using memory as thread-local when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled.
 
 * **`mysafe.enableCallerInfoMonitoringMode`:** Enables tracking caller informations on memory allocation (class name, method name and line number) with at most `4` depth by default. Caller informations are dumped while dumping all allocated memories through `MySafe::dumpAllocatedMemories` if it is enabled. Default value is `false`.
 
