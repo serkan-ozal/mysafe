@@ -70,6 +70,8 @@ Latest version of **MySafe** is `2.0-SNAPSHOT`.
 
 * **`mysafe.illegalMemoryAccessListenerImpl`:** Specifies the `IllegalMemoryAccessListener` implementation to be notified when illegal memory access occurred.
 
+* **`mysafe.useNativeMemoryForStorageWhenSupported`:** Enables usage of native memory (off-heap) backed storages when supported (only supported by thread-local storage at the moment).
+
 4. Usage
 ==============
 
