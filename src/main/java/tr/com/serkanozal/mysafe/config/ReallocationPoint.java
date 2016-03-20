@@ -28,7 +28,7 @@ import java.lang.annotation.Target;
  * Annotated method must be in the form of 
  * <tt>long $YOUR_REALLOCATION_METHOD_NAME$(long oldAddress, long newSize, ...)</tt> 
  * as given parameter order by default.
- * Order of <tt>oldAddress</tt> and <tt>newSize</tt>parameters can be configured 
+ * Order of <tt>oldAddress</tt> and <tt>newSize</tt> parameters can be configured 
  * via {@link #oldAddressParameterOrder()} and {@link #newSizeParameterOrder()}.
  * As you can see, 
  * <ul>
