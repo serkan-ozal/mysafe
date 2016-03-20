@@ -83,8 +83,12 @@ Latest version of **MySafe** is `2.0-SNAPSHOT`.
 
             Also note that the marked method must be concrete method. Must not be neither method definition on interface nor on abstract class.
     
-    - **Configuring custom memory management via properties file:** ???
-    
+    - **Configuring custom memory management via properties file:** In the `mysafe-config.properties` file, memory management management point configurations are represented by properties. Key of property represents the memory management management point configuration and value of property represents the management management point type. Memory management point types are `ALLOCATION_POINT`, `FREE_POINT` and `REALLOCATION_POINT`. 
+        Here are the  memory management management point configuration syntaxes:
+        * **`ALLOCATION_POINT`:** It must be in the form of `<class_name>#<method_name>(#<size_parameter_order>)?`
+        * **`FREE_POINT`:** It must be in the form of `<class_name>#<method_name>(#<address_parameter_order>)?`
+        * **`REALLOCATION_POINT`:** It must be in the form of `<class_name>#<method_name>(#<old_address_parameter_order>(#<new_size_parameter_order>)?)?`
+        
         Here is sample custom memory management config via `mysafe-config.properties`:
         ```
         tr.com.serkanozal.mysafe.CustomMemoryManagementDemo$MemoryManager#allocate=ALLOCATION_POINT
