@@ -52,11 +52,49 @@ Latest version of **MySafe** is `2.0-SNAPSHOT`.
 
 * **`mysafe.useCustomMemoryManagement`:** Enabled custom memory management mode. Custom memory management means that memory allocation/free/reallocation operations are not handled directly over `sun.misc.Unsafe` but over custom implementation. For example, user might acquire memory in batch from OS, caches it and then serves requested memories from there. In this mode, user can specify his/her custom memory allocation/free/reallocation points instead of `Unsafe::allocateMemory`/`Unsafe::freeMemory`/`Unsafe::reallocateMemory`. However, when this mode is enabled, **Safe Memory Access Mode** feature cannot be enabled at the same time. Custom memory management points can be configured via annotations (`@AllocationPoint`, `@FreePoint` and `@ReallocationPoint`) and properties file named `mysafe-config.properties`.
 
-**TODO:** Explain how to specify custom memory management points with annotation or by properties file in detail.
+    - **Configuring custom memory management via annotation:** Custom memory management points can be configured by marking related methods with these annotations.
+        * **`@AllocationPoint`:** Marks custom allocation points to be tracked. 
+        
+            Annotated method must be in the form of `long $YOUR_ALLOCATION_METHOD_NAME$(long size, ...)` as given parameter order by default. Order of `size` parameter can be configured via `sizeParameterOrder()`. 
+            
+            As you can see, 
+            - There might be other parameters rather than `size`.
+            - Return type can only be `long` and it must be allocated `address`.
+        
+            Also note that the marked method must be concrete method. Must not be neither method definition on interface nor on abstract class.
+            
+        * **`@FreePoint`:** Marks custom free points to be tracked.
+
+            Annotated method must be in the form of `void $YOUR_FREE_METHOD_NAME$(long address, ...)` as given parameter order by default. Order of `address` parameter can be configured via `addressParameterOrder()`. 
+            
+            As you can see, 
+            - There might be other parameters rather than `address`.
+            - Return type can only be `void`.
+            
+            Also note that the marked method must be concrete method. Must not be neither method definition on interface nor on abstract class.
+            
+        * **`@ReallocationPoint`:** Marks custom reallocation points to be tracked.
+
+            Annotated method must be in the form of `long $YOUR_REALLOCATION_METHOD_NAME$(long oldAddress, long newSize, ...)` as given parameter order by default. Order of `oldAddress` and `newSize` parameters can be configured via `oldAddressParameterOrder()` and `newSizeParameterOrder()`.
+
+            As you can see, 
+            - There might be other parameters rather than `oldAddress` and `newSize`.
+            - Return type can only be `long` and it must be reallocated `address`.
+
+            Also note that the marked method must be concrete method. Must not be neither method definition on interface nor on abstract class.
+    
+    - **Configuring custom memory management via properties file:** ???
+    
+        Here is sample custom memory management config via `mysafe-config.properties`:
+        ```
+        tr.com.serkanozal.mysafe.CustomMemoryManagementDemo$MemoryManager#allocate=ALLOCATION_POINT
+        tr.com.serkanozal.mysafe.CustomMemoryManagementDemo$MemoryManager#free=FREE_POINT
+        tr.com.serkanozal.mysafe.CustomMemoryManagementDemo$MemoryManager#reallocate=REALLOCATION_POINT
+        ```
 
 * **`mysafe.customMemoryManagementPackagePrefix`:** Specifies a subset of classes/packages for checking loaded classes whether they might have custom memory management point. By this configuration, unnecessary check on every loaded classes is prevented for possible custom memory management points.
 
-* **`mysafe.threadLocalMemoryUsagePatternExist`:** ???
+* **`mysafe.threadLocalMemoryUsagePatternExist`:** Enables thread-local based storages for allocated memories and caller informations. Since storages are thread-local, they are lock free and no need to any synchronization. By these advantages, they perform better than lock guarded and synchonized global storages. If memory usages are thread-local in your application, it is highly recommended to enable this property. Thread-local memory usage means that once a memory is allocated in a thread, it is only accessed and free within that thread.
 
 * **`mysafe.threadLocalMemoryUsageDeciderImpl`:** Specifies the `ThreadLocalMemoryUsageDecider` implementation to be used for deciding which threads use memory as thread-local and which ones use as global. This property is used when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled. By default all threads are assumed as they are using memory as thread-local when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled.
 
