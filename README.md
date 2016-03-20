@@ -203,8 +203,9 @@ MySafe.dumpAllocatedMemories(myPrintStream);
 
 6. Demo
 ==============
-
 [Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/Demo.java) is its demo application.
+
+[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/CustomMemoryManagementDemo.java) is its demo application for demonstrating custom memory management support.
 
 7. Fixes & Enhancements
 ==============
@@ -218,8 +219,8 @@ Bug fixes and enhancements at each release:
 --------------
 * Some renaming on interfaces, classes and method names about **Unsafe** terms including API.
 * Ability to specify custom memory allocation, reallocation and free points (methods) instead of `Unsafe`'s `allocateMemory`, `freeMemory` and `reallocateMemory` methods.
-* Ability to monitor stacktraces of memory allocations by **class namess** and **thread name**.
+* Ability to monitor stacktraces of memory allocations by **class name**, **method name** (or **constructor**/**class initializer**) and **line number**.
 
 8. Roadmap
 ==============
-* Ability to monitor stacktraces of memory allocations with **method calls** (currently only class name and thread name are available) with minimum jitter and litter. So, user can have hints about the cause of memory leaks in the application code by looking at the stacktraces of non-free allocations. 
+* Ability to storing allocated memory addresses and caller informations (if enabled) at off-heap instead of heap.
