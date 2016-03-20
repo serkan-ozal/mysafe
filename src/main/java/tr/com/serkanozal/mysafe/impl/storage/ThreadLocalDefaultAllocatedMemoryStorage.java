@@ -20,12 +20,16 @@ import java.util.concurrent.ScheduledExecutorService;
 import sun.misc.Unsafe;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
-import tr.com.serkanozal.mysafe.impl.util.Long2LongHashMap;
-import tr.com.serkanozal.mysafe.impl.util.Long2LongHashMap.LongLongConsumer;
-import tr.com.serkanozal.mysafe.impl.util.Long2LongHashMap.LongLongCursor;
+import tr.com.serkanozal.mysafe.impl.util.HeapMemoryBackedLong2LongHashMap;
+import tr.com.serkanozal.mysafe.impl.util.Long2LongMap;
+import tr.com.serkanozal.mysafe.impl.util.Long2LongMap.LongLongConsumer;
+import tr.com.serkanozal.mysafe.impl.util.Long2LongMap.LongLongCursor;
+import tr.com.serkanozal.mysafe.impl.util.NativeMemoryBackedLong2LongHashMap;
 
 public class ThreadLocalDefaultAllocatedMemoryStorage extends AbstractThreadLocalAllocatedMemoryStorage {
 
+    private static final boolean USE_NATIVE_MEMORY = Boolean.getBoolean("mysafe.useNativeMemoryForStorageWhenSupported");
+    
     public ThreadLocalDefaultAllocatedMemoryStorage(Unsafe unsafe, ScheduledExecutorService scheduler) {
         super(unsafe, scheduler);
     }
@@ -38,7 +42,10 @@ public class ThreadLocalDefaultAllocatedMemoryStorage extends AbstractThreadLoca
     private class InternalThreadLocalDefaultAllocatedMemoryStorage 
             extends AbstractInternalThreadLocalAllocatedMemoryStorage {
 
-        private final Long2LongHashMap allocatedMemories = new Long2LongHashMap(INVALID);
+        private final Long2LongMap allocatedMemories = 
+                USE_NATIVE_MEMORY 
+                    ? new NativeMemoryBackedLong2LongHashMap(unsafe, INVALID)
+                    : new HeapMemoryBackedLong2LongHashMap(INVALID);
  
         private InternalThreadLocalDefaultAllocatedMemoryStorage(Unsafe unsafe) {
             super(unsafe);

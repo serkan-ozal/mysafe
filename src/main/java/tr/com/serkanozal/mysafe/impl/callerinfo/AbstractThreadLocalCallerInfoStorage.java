@@ -27,6 +27,7 @@ import sun.misc.Unsafe;
 
 abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage {
 
+    protected final Unsafe unsafe;
     private final ConcurrentMap<SoftReference<Thread>, CallerInfoStorage> allCallerInfoStorages =
             new ConcurrentHashMap<SoftReference<Thread>, CallerInfoStorage>();
     private final ThreadLocal<CallerInfoStorage> threadLocalCallerInfoStorages;
@@ -39,6 +40,7 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
     public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe, 
                                                 ConcurrentMap<Long, CallerInfo> callerInfoMap, 
                                                 ScheduledExecutorService scheduler) {
+        this.unsafe = unsafe;
         this.threadLocalCallerInfoStorages = new ThreadLocal<CallerInfoStorage>() {
             @Override
             protected CallerInfoStorage initialValue() {

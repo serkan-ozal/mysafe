@@ -19,10 +19,14 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 
 import sun.misc.Unsafe;
-import tr.com.serkanozal.mysafe.impl.util.Long2LongHashMap;
+import tr.com.serkanozal.mysafe.impl.util.HeapMemoryBackedLong2LongHashMap;
+import tr.com.serkanozal.mysafe.impl.util.Long2LongMap;
+import tr.com.serkanozal.mysafe.impl.util.NativeMemoryBackedLong2LongHashMap;
 
 public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCallerInfoStorage {
 
+    private static final boolean USE_NATIVE_MEMORY = Boolean.getBoolean("mysafe.useNativeMemoryForStorageWhenSupported");
+    
     public ThreadLocalDefaultCallerInfoStorage(Unsafe unsafe, ScheduledExecutorService scheduler) {
         super(unsafe, scheduler);
     }
@@ -41,8 +45,10 @@ public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCall
     private class InternalThreadLocalDefaultCallerInfoStorage 
             extends AbstractInternalThreadLocalCallerInfoStorage {
 
-        private final Long2LongHashMap allocationCallerInfoMap = 
-                new Long2LongHashMap(-1);
+        private final Long2LongMap allocationCallerInfoMap = 
+                USE_NATIVE_MEMORY 
+                    ? new NativeMemoryBackedLong2LongHashMap(unsafe, -1)
+                    : new HeapMemoryBackedLong2LongHashMap(-1);
  
         private InternalThreadLocalDefaultCallerInfoStorage(Unsafe unsafe) {
             super(unsafe);

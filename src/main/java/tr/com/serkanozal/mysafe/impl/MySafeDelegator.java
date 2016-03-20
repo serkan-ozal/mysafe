@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Logger;
@@ -77,7 +78,16 @@ public final class MySafeDelegator {
     private static final CallerInfoInjector CALLER_INFO_INJECTOR = new CallerInfoInjector();
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
-    private static final ScheduledExecutorService SCHEDULER = Executors.newScheduledThreadPool(1);
+    private static final ScheduledExecutorService SCHEDULER = 
+            Executors.newScheduledThreadPool(1, new ThreadFactory() {
+                private final ThreadFactory delegatedThreadFactory = Executors.defaultThreadFactory();
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread thread = delegatedThreadFactory.newThread(r);
+                    thread.setDaemon(true);
+                    return thread;
+                }
+            });
     
     private static final boolean SAFE_MEMORY_MANAGEMENT_MODE_ENABLED = 
             Boolean.getBoolean("mysafe.enableSafeMemoryManagementMode");

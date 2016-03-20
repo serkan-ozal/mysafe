@@ -29,11 +29,13 @@ import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 
 abstract class AbstractThreadLocalAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
+    protected final Unsafe unsafe;
     private final ConcurrentMap<SoftReference<Thread>, AllocatedMemoryStorage> allAllocatedMemoryStorages =
             new ConcurrentHashMap<SoftReference<Thread>, AllocatedMemoryStorage>();
     private final ThreadLocal<AllocatedMemoryStorage> threadLocalAllocatedMemoryStorages;
     
     public AbstractThreadLocalAllocatedMemoryStorage(final Unsafe unsafe, ScheduledExecutorService scheduler) {
+        this.unsafe = unsafe;
         this.threadLocalAllocatedMemoryStorages = new ThreadLocal<AllocatedMemoryStorage>() {
             @Override
             protected AllocatedMemoryStorage initialValue() {
