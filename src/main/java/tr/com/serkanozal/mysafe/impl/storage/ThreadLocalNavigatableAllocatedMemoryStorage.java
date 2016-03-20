@@ -20,6 +20,7 @@ import it.unimi.dsi.fastutil.longs.Long2LongMap;
 import it.unimi.dsi.fastutil.longs.Long2LongSortedMap;
 
 import java.util.Map;
+import java.util.concurrent.ScheduledExecutorService;
 
 import sun.misc.Unsafe;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
@@ -27,8 +28,8 @@ import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 
 public class ThreadLocalNavigatableAllocatedMemoryStorage extends AbstractThreadLocalAllocatedMemoryStorage {
 
-    public ThreadLocalNavigatableAllocatedMemoryStorage(Unsafe unsafe) {
-        super(unsafe);
+    public ThreadLocalNavigatableAllocatedMemoryStorage(Unsafe unsafe, ScheduledExecutorService scheduler) {
+        super(unsafe, scheduler);
     }
 
     @Override
@@ -106,6 +107,16 @@ public class ThreadLocalNavigatableAllocatedMemoryStorage extends AbstractThread
             } finally {
                 free();
             }    
+        }
+        
+        @Override
+        public boolean isEmpty() {
+            acquire();
+            try {
+                return allocatedMemories.isEmpty();
+            } finally {
+                free();
+            }
         }
         
     }

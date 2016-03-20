@@ -21,6 +21,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Logger;
@@ -75,6 +77,7 @@ public final class MySafeDelegator {
     private static final CallerInfoInjector CALLER_INFO_INJECTOR = new CallerInfoInjector();
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
+    private static final ScheduledExecutorService SCHEDULER = Executors.newScheduledThreadPool(1);
     
     private static final boolean SAFE_MEMORY_MANAGEMENT_MODE_ENABLED = 
             Boolean.getBoolean("mysafe.enableSafeMemoryManagementMode");
@@ -159,9 +162,11 @@ public final class MySafeDelegator {
             if (THREAD_LOCAL_MEMORY_USAGE_PATTERN_EXIST) {
                 AllocatedMemoryStorage threadLocalAllocatedMemoryStorage = null;
                 if (safeMemoryAccessModeEnabled) {
-                    threadLocalAllocatedMemoryStorage = new ThreadLocalNavigatableAllocatedMemoryStorage(DEFAULT_UNSAFE);
+                    threadLocalAllocatedMemoryStorage = 
+                            new ThreadLocalNavigatableAllocatedMemoryStorage(DEFAULT_UNSAFE, SCHEDULER);
                 } else {
-                    threadLocalAllocatedMemoryStorage = new ThreadLocalDefaultAllocatedMemoryStorage(DEFAULT_UNSAFE);
+                    threadLocalAllocatedMemoryStorage = 
+                            new ThreadLocalDefaultAllocatedMemoryStorage(DEFAULT_UNSAFE, SCHEDULER);
                 }
                 if (threadLocalMemoryUsageDecider != null) {
                     AllocatedMemoryStorage globalAllocatedMemoryStorage;
@@ -208,9 +213,9 @@ public final class MySafeDelegator {
             if (THREAD_LOCAL_MEMORY_USAGE_PATTERN_EXIST) {
                 if (threadLocalMemoryUsageDecider != null) {
                     CALLER_INFO_STORAGE = 
-                            new ThreadLocalAwareCallerInfoStorage(DEFAULT_UNSAFE, threadLocalMemoryUsageDecider);
+                            new ThreadLocalAwareCallerInfoStorage(DEFAULT_UNSAFE, threadLocalMemoryUsageDecider, SCHEDULER);
                 } else {
-                    CALLER_INFO_STORAGE = new ThreadLocalDefaultCallerInfoStorage(DEFAULT_UNSAFE);;
+                    CALLER_INFO_STORAGE = new ThreadLocalDefaultCallerInfoStorage(DEFAULT_UNSAFE, SCHEDULER);
                 }    
             } else {
                 CALLER_INFO_STORAGE = new DefaultCallerInfoStorage();
@@ -228,52 +233,87 @@ public final class MySafeDelegator {
         
         private final Unsafe UNSAFE;
         private final long MEMORY_STATE_FIELD_OFFSET;
-        private final int MAX_CONCURRENCY_WINDOW = 4 * Runtime.getRuntime().availableProcessors();
+        private final long WAITERS_FOR_ACCESS_FIELD_OFFSET;
+        private final long WAITERS_FOR_FREE_FIELD_OFFSET;
         
         private volatile int memoryState = 0;
+        private volatile int waitersForAccess = 0;
+        private volatile int waitersForFree = 0;
 
         private MemoryAccessLock(Unsafe unsafe) {
             try {
                 UNSAFE = unsafe;
-                MEMORY_STATE_FIELD_OFFSET = UNSAFE.objectFieldOffset(MemoryAccessLock.class.getDeclaredField("memoryState"));
+                MEMORY_STATE_FIELD_OFFSET = 
+                        UNSAFE.objectFieldOffset(MemoryAccessLock.class.getDeclaredField("memoryState"));
+                WAITERS_FOR_ACCESS_FIELD_OFFSET = 
+                        UNSAFE.objectFieldOffset(MemoryAccessLock.class.getDeclaredField("waitersForAccess"));
+                WAITERS_FOR_FREE_FIELD_OFFSET = 
+                        UNSAFE.objectFieldOffset(MemoryAccessLock.class.getDeclaredField("waitersForFree"));
             } catch (Throwable t) {
                 throw new IllegalStateException(t);
             }
         }
         
-        private void acquireAccessLock() {
+        private void operateOnWaitersForAccess(int operation) {
             for (;;) {
-                if (memoryState >= MAX_CONCURRENCY_WINDOW) {
+                int currentWaitersForAccess = waitersForAccess;
+                if (UNSAFE.compareAndSwapInt(this, WAITERS_FOR_ACCESS_FIELD_OFFSET, 
+                                             currentWaitersForAccess, currentWaitersForAccess + operation)) {
+                    break;
+                }
+            }   
+        }
+
+        private void acquireAccessLock() {
+            operateOnWaitersForAccess(+1);
+            for (;;) {
+                if (waitersForFree > 0) {
                     while (memoryState > 0);
                 }
                 int currentState = memoryState;
-                if (currentState >= 0 && currentState < MAX_CONCURRENCY_WINDOW) {
-                    if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, currentState, currentState + 1)) {
+                if (currentState >= 0) {
+                    if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, 
+                                                 currentState, currentState + 1)) {
                         break;
                     }
                 }
             }
+            operateOnWaitersForAccess(-1);
+        }
+        
+        private void operateOnWaitersForFree(int operation) {
+            for (;;) {
+                int currentWaitersForFree = waitersForFree;
+                if (UNSAFE.compareAndSwapInt(this, WAITERS_FOR_FREE_FIELD_OFFSET, 
+                                             currentWaitersForFree, currentWaitersForFree + operation)) {
+                    break;
+                }
+            }   
         }
         
         private void acquireFreeLock() {
+            operateOnWaitersForFree(+1);
             for (;;) {
-                if (memoryState <= -MAX_CONCURRENCY_WINDOW) {
+                if (waitersForAccess > 0) {
                     while (memoryState < 0);
                 }
                 int currentState = memoryState;
-                if (currentState <= 0 && currentState > -MAX_CONCURRENCY_WINDOW) {
-                    if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, currentState, currentState - 1)) {
+                if (currentState <= 0) {
+                    if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, 
+                                                 currentState, currentState - 1)) {
                         break;
                     }
                 }
             }
+            operateOnWaitersForFree(-1);
         }
 
         private void releaseAccessLock() {
             for (;;) {
                 int currentState = memoryState;
                 assert currentState > 0 : "Current state must be negative while releasing access lock but it is " + currentState;
-                if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, currentState, currentState - 1)) {
+                if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, 
+                                             currentState, currentState - 1)) {
                     break;
                 }
             }
@@ -283,7 +323,8 @@ public final class MySafeDelegator {
             for (;;) {
                 int currentState = memoryState;
             	assert currentState < 0 : "Current state must be negative while releasing free lock but it is " + currentState;
-                if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, currentState, currentState + 1)) {
+                if (UNSAFE.compareAndSwapInt(this, MEMORY_STATE_FIELD_OFFSET, 
+                                             currentState, currentState + 1)) {
                     break;
                 }
             }

@@ -35,6 +35,8 @@ import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.CtMethod;
 import javassist.NotFoundException;
+import javassist.bytecode.CodeAttribute;
+import javassist.bytecode.LineNumberAttribute;
 
 class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
 
@@ -243,6 +245,7 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         }    
     }
 
+    @SuppressWarnings("unchecked")
     private void instrumentAllocationPoint(CtClass clazz, CtMethod method, AllocationPointConfig allocationPointConfig) 
             throws NotFoundException, CannotCompileException {
         CtClass returnType = method.getReturnType();
@@ -270,15 +273,11 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         String generatedMethodName = methodName;
         String actualMethodName = methodName + "$$$MySafe$$$";
         
+        CtMethod generatedMethod = new CtMethod(method, method.getDeclaringClass(), null);
+        generatedMethod.setName(generatedMethodName);
         method.setName(actualMethodName);
-
-        CtMethod generatedMethod = 
-                new CtMethod(method.getReturnType(), 
-                             generatedMethodName, 
-                             paramTypes, 
-                             method.getDeclaringClass());
         generatedMethod.setModifiers(method.getModifiers());
-        
+
         StringBuilder actualMethodCallSignature = new StringBuilder(actualMethodName);
         actualMethodCallSignature.append("(");
         for (int i = 0; i < paramTypes.length; i++) {
@@ -295,7 +294,6 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
             afterAllocateMemory(size, address);
             return address; 
         */
-        
         StringBuilder generatedMethodBody = new StringBuilder();
         generatedMethodBody.append("{").append("\n");
         generatedMethodBody.append("MySafeDelegator.beforeAllocateMemory($").append(sizeParamOrder).append(");").append("\n");
@@ -304,10 +302,16 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         generatedMethodBody.append("return address$$$MySafe$$$;").append("\n");
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
+        
+        CodeAttribute originalCodeAttribute = method.getMethodInfo().getCodeAttribute();
+        LineNumberAttribute originalLineNumberAttribute = (LineNumberAttribute) originalCodeAttribute.getAttribute(LineNumberAttribute.tag);
+        CodeAttribute generatedCodeAttribute = generatedMethod.getMethodInfo().getCodeAttribute();
+        generatedCodeAttribute.getAttributes().add(originalLineNumberAttribute);
 
         clazz.addMethod(generatedMethod);
     }
     
+    @SuppressWarnings("unchecked")
     private void instrumentFreePoint(CtClass clazz, CtMethod method, FreePointConfig freePointConfig) 
             throws NotFoundException, CannotCompileException {
         CtClass returnType = method.getReturnType();
@@ -336,13 +340,9 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         String generatedMethodName = methodName;
         String actualMethodName = methodName + "$$$MySafe$$$";
         
+        CtMethod generatedMethod = new CtMethod(method, method.getDeclaringClass(), null);
+        generatedMethod.setName(generatedMethodName);
         method.setName(actualMethodName);
-
-        CtMethod generatedMethod = 
-                new CtMethod(method.getReturnType(), 
-                             generatedMethodName, 
-                             paramTypes, 
-                             method.getDeclaringClass());
         generatedMethod.setModifiers(method.getModifiers());
         
         StringBuilder actualMethodCallSignature = new StringBuilder(actualMethodName);
@@ -372,9 +372,15 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
         
+        CodeAttribute originalCodeAttribute = method.getMethodInfo().getCodeAttribute();
+        LineNumberAttribute originalLineNumberAttribute = (LineNumberAttribute) originalCodeAttribute.getAttribute(LineNumberAttribute.tag);
+        CodeAttribute generatedCodeAttribute = generatedMethod.getMethodInfo().getCodeAttribute();
+        generatedCodeAttribute.getAttributes().add(originalLineNumberAttribute);
+        
         clazz.addMethod(generatedMethod);
     }
     
+    @SuppressWarnings("unchecked")
     private void instrumentReallocationPoint(CtClass clazz, CtMethod method, ReallocationPointConfig reallocationPointConfig) 
             throws NotFoundException, CannotCompileException {
         CtClass returnType = method.getReturnType();
@@ -408,13 +414,9 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         String generatedMethodName = methodName;
         String actualMethodName = methodName + "$$$MySafe$$$";
         
+        CtMethod generatedMethod = new CtMethod(method, method.getDeclaringClass(), null);
+        generatedMethod.setName(generatedMethodName);
         method.setName(actualMethodName);
-
-        CtMethod generatedMethod = 
-                new CtMethod(method.getReturnType(), 
-                             generatedMethodName, 
-                             paramTypes, 
-                             method.getDeclaringClass());
         generatedMethod.setModifiers(method.getModifiers());
         
         StringBuilder actualMethodCallSignature = new StringBuilder(actualMethodName);
@@ -454,6 +456,11 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         generatedMethodBody.append("return newAddress$$$MySafe$$$;").append("\n");
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
+        
+        CodeAttribute originalCodeAttribute = method.getMethodInfo().getCodeAttribute();
+        LineNumberAttribute originalLineNumberAttribute = (LineNumberAttribute) originalCodeAttribute.getAttribute(LineNumberAttribute.tag);
+        CodeAttribute generatedCodeAttribute = generatedMethod.getMethodInfo().getCodeAttribute();
+        generatedCodeAttribute.getAttributes().add(originalLineNumberAttribute);
         
         clazz.addMethod(generatedMethod);
     }

@@ -80,4 +80,9 @@ public class DefaultAllocatedMemoryStorage implements AllocatedMemoryStorage {
         }
     }
 
+    @Override
+    public boolean isEmpty() {
+        return allocatedMemories.isEmpty();
+    }
+
 }

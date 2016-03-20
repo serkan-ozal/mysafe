@@ -15,11 +15,13 @@
  */
 package tr.com.serkanozal.mysafe.impl.storage;
 
-import java.lang.ref.WeakReference;
+import java.lang.ref.SoftReference;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import sun.misc.Unsafe;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
@@ -27,20 +29,21 @@ import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
 
 abstract class AbstractThreadLocalAllocatedMemoryStorage implements AllocatedMemoryStorage {
 
-    protected final ConcurrentMap<WeakReference<Thread>, AllocatedMemoryStorage> allAllocatedMemoryStorages =
-            new ConcurrentHashMap<WeakReference<Thread>, AllocatedMemoryStorage>();
+    private final ConcurrentMap<SoftReference<Thread>, AllocatedMemoryStorage> allAllocatedMemoryStorages =
+            new ConcurrentHashMap<SoftReference<Thread>, AllocatedMemoryStorage>();
     private final ThreadLocal<AllocatedMemoryStorage> threadLocalAllocatedMemoryStorages;
     
-    public AbstractThreadLocalAllocatedMemoryStorage(final Unsafe unsafe) {
+    public AbstractThreadLocalAllocatedMemoryStorage(final Unsafe unsafe, ScheduledExecutorService scheduler) {
         this.threadLocalAllocatedMemoryStorages = new ThreadLocal<AllocatedMemoryStorage>() {
             @Override
             protected AllocatedMemoryStorage initialValue() {
                 AllocatedMemoryStorage allocatedMemoryStorage = createInternalThreadLocalAllocatedMemoryStorage(unsafe);
-                WeakReference<Thread> threadRef = new WeakReference<Thread>(Thread.currentThread());
+                SoftReference<Thread> threadRef = new SoftReference<Thread>(Thread.currentThread());
                 allAllocatedMemoryStorages.put(threadRef, allocatedMemoryStorage);
                 return allocatedMemoryStorage;
             };
         };
+        scheduler.scheduleAtFixedRate(new IdleThreadLocalAllocatedMemoryStorageCleaner(), 5, 5, TimeUnit.SECONDS);
     }
     
     abstract protected AllocatedMemoryStorage createInternalThreadLocalAllocatedMemoryStorage(Unsafe unsafe);
@@ -72,19 +75,60 @@ abstract class AbstractThreadLocalAllocatedMemoryStorage implements AllocatedMem
 
     @Override
     public void iterate(AllocatedMemoryIterator iterator) {
-        Iterator<Map.Entry<WeakReference<Thread>, AllocatedMemoryStorage>> iter = 
+        Iterator<Map.Entry<SoftReference<Thread>, AllocatedMemoryStorage>> iter = 
                 allAllocatedMemoryStorages.entrySet().iterator();
         while (iter.hasNext()) {
-            Map.Entry<WeakReference<Thread>, AllocatedMemoryStorage> entry = iter.next();
-            WeakReference<Thread> threadRef = entry.getKey();
-            Thread thread = threadRef.get();
-            if (thread == null || !thread.isAlive()) {
+            Map.Entry<SoftReference<Thread>, AllocatedMemoryStorage> entry = iter.next();
+            if (isIdle(entry)) {
                 iter.remove();
             } else {
                 AllocatedMemoryStorage allocatedMemoryStorage = entry.getValue();
                 allocatedMemoryStorage.iterate(iterator);
             }
         }
+    }
+    
+    @Override
+    public boolean isEmpty() {
+        Iterator<Map.Entry<SoftReference<Thread>, AllocatedMemoryStorage>> iter = 
+                allAllocatedMemoryStorages.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<SoftReference<Thread>, AllocatedMemoryStorage> entry = iter.next();
+            if (isIdle(entry)) {
+                iter.remove();
+            } else {
+                AllocatedMemoryStorage allocatedMemoryStorage = entry.getValue();
+                if (!allocatedMemoryStorage.isEmpty()) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    
+    private boolean isIdle(Map.Entry<SoftReference<Thread>, AllocatedMemoryStorage> entry) {
+        SoftReference<Thread> threadRef = entry.getKey();
+        Thread thread = threadRef.get();
+        if (thread == null || !thread.isAlive()) {
+            return entry.getValue().isEmpty();
+        } 
+        return false;
+    }
+    
+    private class IdleThreadLocalAllocatedMemoryStorageCleaner implements Runnable {
+
+        @Override
+        public void run() {
+            Iterator<Map.Entry<SoftReference<Thread>, AllocatedMemoryStorage>> iter = 
+                    allAllocatedMemoryStorages.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<SoftReference<Thread>, AllocatedMemoryStorage> entry = iter.next();
+                if (isIdle(entry)) {
+                    iter.remove();
+                }
+            }
+        }
+        
     }
     
     protected abstract class AbstractInternalThreadLocalAllocatedMemoryStorage implements AllocatedMemoryStorage {

@@ -19,7 +19,9 @@ import java.util.List;
 
 public class CallerInfo {
 
-    public static final int MAX_CALLER_DEPTH = 4;
+    private static final int DEFAULT_MAX_CALLER_DEPTH = 4;
+    public static final int MAX_CALLER_DEPTH = 
+            Integer.getInteger("mysafe.maxCallerInfoDepth", DEFAULT_MAX_CALLER_DEPTH);
     public static final long EMPTY_CALLER_INFO_KEY = -1L;
     public static final CallerInfo  EMPTY_CALLER_INFO = new CallerInfo(EMPTY_CALLER_INFO_KEY, null);
     

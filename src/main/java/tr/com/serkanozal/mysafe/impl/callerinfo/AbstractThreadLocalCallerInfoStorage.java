@@ -15,32 +15,35 @@
  */
 package tr.com.serkanozal.mysafe.impl.callerinfo;
 
-import java.lang.ref.WeakReference;
+import java.lang.ref.SoftReference;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import sun.misc.Unsafe;
 
 abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage {
 
-    private final ConcurrentMap<WeakReference<Thread>, CallerInfoStorage> allCallerInfoStorages =
-            new ConcurrentHashMap<WeakReference<Thread>, CallerInfoStorage>();
+    private final ConcurrentMap<SoftReference<Thread>, CallerInfoStorage> allCallerInfoStorages =
+            new ConcurrentHashMap<SoftReference<Thread>, CallerInfoStorage>();
     private final ThreadLocal<CallerInfoStorage> threadLocalCallerInfoStorages;
     private final ConcurrentMap<Long, CallerInfo> callerInfoMap;
 
-    public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe) {
-        this(unsafe, null);
+    public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe, ScheduledExecutorService scheduler) {
+        this(unsafe, null, scheduler);
     }
     
     public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe, 
-                                                ConcurrentMap<Long, CallerInfo> callerInfoMap) {
+                                                ConcurrentMap<Long, CallerInfo> callerInfoMap, 
+                                                ScheduledExecutorService scheduler) {
         this.threadLocalCallerInfoStorages = new ThreadLocal<CallerInfoStorage>() {
             @Override
             protected CallerInfoStorage initialValue() {
                 CallerInfoStorage callerInfoStorage = createInternalThreadLocalCallerInfoStorage(unsafe);
-                WeakReference<Thread> threadRef = new WeakReference<Thread>(Thread.currentThread());
+                SoftReference<Thread> threadRef = new SoftReference<Thread>(Thread.currentThread());
                 allCallerInfoStorages.put(threadRef, callerInfoStorage);
                 return callerInfoStorage;
             };
@@ -50,6 +53,7 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
         } else {
             this.callerInfoMap = callerInfoMap;
         }
+        scheduler.scheduleAtFixedRate(new IdleThreadLocalCallerInfoStorageCleaner(), 5, 5, TimeUnit.SECONDS);
     }
     
     abstract protected CallerInfoStorage createInternalThreadLocalCallerInfoStorage(Unsafe unsafe);
@@ -71,13 +75,11 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
 
     @Override
     public CallerInfo findCallerInfoByConnectedAddress(long address) {
-        Iterator<Map.Entry<WeakReference<Thread>, CallerInfoStorage>> iter = 
+        Iterator<Map.Entry<SoftReference<Thread>, CallerInfoStorage>> iter = 
                 allCallerInfoStorages.entrySet().iterator();
         while (iter.hasNext()) {
-            Map.Entry<WeakReference<Thread>, CallerInfoStorage> entry = iter.next();
-            WeakReference<Thread> threadRef = entry.getKey();
-            Thread thread = threadRef.get();
-            if (thread == null || !thread.isAlive()) {
+            Map.Entry<SoftReference<Thread>, CallerInfoStorage> entry = iter.next();
+            if (isIdle(entry)) {
                 iter.remove();
             } else {
                 CallerInfoStorage callerInfoStorage = entry.getValue();
@@ -98,6 +100,49 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
     @Override
     public void disconnectAddressFromCallerInfo(long address) {
         threadLocalCallerInfoStorages.get().disconnectAddressFromCallerInfo(address);
+    }
+    
+    @Override
+    public boolean isEmpty() {
+        Iterator<Map.Entry<SoftReference<Thread>, CallerInfoStorage>> iter = 
+                allCallerInfoStorages.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<SoftReference<Thread>, CallerInfoStorage> entry = iter.next();
+            if (isIdle(entry)) {
+                iter.remove();
+            } else {
+                CallerInfoStorage callerInfoStorage = entry.getValue();
+                if (!callerInfoStorage.isEmpty()) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean isIdle(Map.Entry<SoftReference<Thread>, CallerInfoStorage> entry) {
+        SoftReference<Thread> threadRef = entry.getKey();
+        Thread thread = threadRef.get();
+        if (thread == null || !thread.isAlive()) {
+            return entry.getValue().isEmpty();
+        } 
+        return false;
+    }
+
+    private class IdleThreadLocalCallerInfoStorageCleaner implements Runnable {
+
+        @Override
+        public void run() {
+            Iterator<Map.Entry<SoftReference<Thread>, CallerInfoStorage>> iter = 
+                    allCallerInfoStorages.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<SoftReference<Thread>, CallerInfoStorage> entry = iter.next();
+                if (isIdle(entry)) {
+                    iter.remove();
+                }
+            }
+        }
+        
     }
     
     protected abstract class AbstractInternalThreadLocalCallerInfoStorage implements CallerInfoStorage {

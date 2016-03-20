@@ -81,4 +81,11 @@ public interface AllocatedMemoryStorage {
      */
     void iterate(AllocatedMemoryIterator iterator);
     
+    /**
+     * Returns <tt>true</tt> if storage is empty, otherwise returns <tt>false</tt>.
+     * 
+     * @return <tt>true</tt> if storage is empty, <tt>false</tt> otherwise
+     */
+    boolean isEmpty();
+    
 }

@@ -77,5 +77,10 @@ public class NavigatableAllocatedMemoryStorage implements AllocatedMemoryStorage
             iterator.onAllocatedMemory(address, size);
         }
     }
+    
+    @Override
+    public boolean isEmpty() {
+        return allocatedMemories.isEmpty();
+    }
 
 }

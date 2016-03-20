@@ -71,5 +71,13 @@ public class ThreadLocalAwareAllocatedMemoryStorage implements AllocatedMemorySt
         threadLocalAllocatedMemoryStorage.iterate(iterator);
         globalAllocatedMemoryStorage.iterate(iterator);
     }
+    
+    @Override
+    public boolean isEmpty() {
+        if (threadLocalAllocatedMemoryStorage.isEmpty()) {
+            return globalAllocatedMemoryStorage.isEmpty();
+        }
+        return false;
+    }
 
 }

@@ -15,6 +15,8 @@
  */
 package tr.com.serkanozal.mysafe.impl.storage;
 
+import java.util.concurrent.ScheduledExecutorService;
+
 import sun.misc.Unsafe;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
 import tr.com.serkanozal.mysafe.AllocatedMemoryStorage;
@@ -24,8 +26,8 @@ import tr.com.serkanozal.mysafe.impl.util.Long2LongHashMap.LongLongCursor;
 
 public class ThreadLocalDefaultAllocatedMemoryStorage extends AbstractThreadLocalAllocatedMemoryStorage {
 
-    public ThreadLocalDefaultAllocatedMemoryStorage(Unsafe unsafe) {
-        super(unsafe);
+    public ThreadLocalDefaultAllocatedMemoryStorage(Unsafe unsafe, ScheduledExecutorService scheduler) {
+        super(unsafe, scheduler);
     }
 
     @Override
@@ -98,6 +100,16 @@ public class ThreadLocalDefaultAllocatedMemoryStorage extends AbstractThreadLoca
             } finally {
                 free();
             }    
+        }
+        
+        @Override
+        public boolean isEmpty() {
+            acquire();
+            try {
+                return allocatedMemories.isEmpty();
+            } finally {
+                free();
+            }
         }
         
     }

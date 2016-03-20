@@ -29,4 +29,6 @@ public interface CallerInfoStorage {
     
     void disconnectAddressFromCallerInfo(long address);
     
+    boolean isEmpty();
+    
 }

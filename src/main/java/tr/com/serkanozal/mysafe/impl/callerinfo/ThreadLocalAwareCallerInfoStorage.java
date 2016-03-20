@@ -17,6 +17,7 @@ package tr.com.serkanozal.mysafe.impl.callerinfo;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ScheduledExecutorService;
 
 import sun.misc.Unsafe;
 import tr.com.serkanozal.mysafe.ThreadLocalMemoryUsageDecider;
@@ -29,10 +30,11 @@ public class ThreadLocalAwareCallerInfoStorage implements CallerInfoStorage {
     private final ThreadLocalMemoryUsageDecider threadLocalMemoryUsageDecider;
     
     public ThreadLocalAwareCallerInfoStorage(Unsafe unsafe, 
-                                             ThreadLocalMemoryUsageDecider threadLocalMemoryUsageDecider) {
+                                             ThreadLocalMemoryUsageDecider threadLocalMemoryUsageDecider,
+                                             ScheduledExecutorService scheduler) {
         this.callerInfoMap = new ConcurrentHashMap<Long, CallerInfo>();
         this.globalCallerInfoStorage = new DefaultCallerInfoStorage(callerInfoMap);
-        this.threadLocalCallerInfoStorage = new ThreadLocalDefaultCallerInfoStorage(unsafe, callerInfoMap);
+        this.threadLocalCallerInfoStorage = new ThreadLocalDefaultCallerInfoStorage(unsafe, callerInfoMap, scheduler);
         this.threadLocalMemoryUsageDecider = threadLocalMemoryUsageDecider;
     }
     
@@ -77,6 +79,14 @@ public class ThreadLocalAwareCallerInfoStorage implements CallerInfoStorage {
     @Override
     public void disconnectAddressFromCallerInfo(long address) {
         callerInfoStorage().disconnectAddressFromCallerInfo(address);
+    }
+    
+    @Override
+    public boolean isEmpty() {
+        if (threadLocalCallerInfoStorage.isEmpty()) {
+            return globalCallerInfoStorage.isEmpty();
+        }
+        return false;
     }
 
 }

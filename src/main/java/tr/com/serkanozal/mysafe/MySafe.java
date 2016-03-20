@@ -84,9 +84,10 @@ public final class MySafe {
                 synchronized (System.class) {
                     if (System.getProperty(MXBEAN_REGISTERED_PROPERTY_NAME) == null) {
                         MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
-                        MySafeMXBean mySafeMXBean = new MySafeMXBeanImpl();
-                        ObjectName mySafeMXBeanObjectName = new ObjectName("tr.com.serkanozal:type=MySafe");
-                        mBeanServer.registerMBean(mySafeMXBean, mySafeMXBeanObjectName);
+                        MySafeMXBean mxBean = new MySafeMXBeanImpl();
+                        ObjectName mxBeanObjectName = new ObjectName("tr.com.serkanozal:type=MySafe");
+                        mBeanServer.registerMBean(mxBean, mxBeanObjectName);
+                        mySafeMXBean = mxBean;
                         System.setProperty(MXBEAN_REGISTERED_PROPERTY_NAME, "true");
                     }    
                 }
@@ -145,8 +146,8 @@ public final class MySafe {
      *                               by <code>mysafe.disableMXBean</code> property
      */
     public static MySafeMXBean getMySafeMXBean() {
-        if (Boolean.getBoolean("mysafe.disableMXBean")) {
-            throw new IllegalStateException("MXBean support is disabled!");
+        if (mySafeMXBean == null) {
+            throw new IllegalStateException("MXBean support is not enabled!");
         }
         return mySafeMXBean;
     }
