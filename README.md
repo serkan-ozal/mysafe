@@ -17,7 +17,7 @@ Latest version of **MySafe** is `2.0-SNAPSHOT`.
 ...
 <properties>
     ...
-    <mysafe.version>1.1</mysafe.version>
+    <mysafe.version>2.0-SNAPSHOT</mysafe.version>
     ...
 </properties>
 ...
@@ -47,13 +47,21 @@ Latest version of **MySafe** is `2.0-SNAPSHOT`.
 * **`mysafe.enableSafeMemoryManagementMode`:** Enables checkes while freeing/reallocating memory. By this property enabled, every memory free/reallocation are checked about if the target memory is valid (already allocated) or not. Default value is `false`.
 
 * **`mysafe.enableSafeMemoryAccessMode`:** Enables memory access checkes over `sun.misc.Unsafe`. By this property enabled, every memory accesses over `sun.misc.Unsafe` are checked about if the target memory is valid (already allocated) or not. Default value is `false`.
-
-* **`mysafe.enableCallerInfoMonitoringMode`:** Enables tracking caller informations on memory allocation (currently only caller class names and caller thread name) with at most `8` depth. Caller informations are dumped while dumping all allocated memories through `MySafe::dumpAllocatedMemories` if it is enabled. Default value is `false`.
+ 
+* **`mysafe.enableConcurrentMemoryAccessCheck`:** Enables a very lightweight locking for every memory access/free operation. By this property enabled, when there is on going memory access, there cannot be memory free and when there is on going memory free, there cannot be memory access. However, when there is on going memory access, there can be other memory accesses and when there is on going memory free, there can be other memory frees. It means, memory accesses only lock memory frees and memory frees only lock memory accesses. This property can be used if there is no guarantee for that the accessed memory region can be free by other threads simultaneously. Note that this lock is not address based lock but global lock for memory access/free operation but it is very light weight and implemented by lock-free approaches with busy-spin based on the assumption that memory accesses/frees are very fast operations.
 
 * **`mysafe.useCustomMemoryManagement`:** Enabled custom memory management mode. Custom memory management means that memory allocation/free/reallocation operations are not handled directly over `sun.misc.Unsafe` but over custom implementation. For example, user might acquire memory in batch from OS, caches it and then serves requested memories from there. In this mode, user can specify his/her custom memory allocation/free/reallocation points instead of `Unsafe::allocateMemory`/`Unsafe::freeMemory`/`Unsafe::reallocateMemory`. However, when this mode is enabled, **Safe Memory Access Mode** feature cannot be enabled at the same time. Custom memory management points can be configured via annotations (`@AllocationPoint`, `@FreePoint` and `@ReallocationPoint`) and properties file named `mysafe-config.properties`.
 **TODO** Explain how to specify custom memory management points with annotation or by properties file in detail.
 
-* **`mysafe.disableSafeMode`:** Disables memory access checkes over `sun.misc.Unsafe`. By this property enabled, every memory accesses over `sun.misc.Unsafe` are checked about if the target memory is in the allocated memory region or not to prevvent segmentation fault. Default value is `false`.
+* **`mysafe.customMemoryManagementPackagePrefix`:** Specifies a subset of classes/packages for checking loaded classes whether they might have custom memory management point. By this configuration, unnecessary check on every loaded classes is prevented for possible custom memory management points.
+
+* **`mysafe.threadLocalMemoryUsagePatternExist`:** ???
+
+* **`mysafe.threadLocalMemoryUsageDeciderImpl`:** ???
+
+* **`mysafe.enableCallerInfoMonitoringMode`:** Enables tracking caller informations on memory allocation (class name, method name and line number) with at most `4` depth by default. Caller informations are dumped while dumping all allocated memories through `MySafe::dumpAllocatedMemories` if it is enabled. Default value is `false`.
+
+* **`mysafe.maxCallerInfoDepth`:** Configures maximum depth of for caller information tracking. Default value is `4`.
 
 * **`mysafe.enableMXBean`:** Enables JMX support. Default value is `false`.
 
