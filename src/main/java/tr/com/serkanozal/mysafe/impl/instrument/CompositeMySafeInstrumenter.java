@@ -15,16 +15,38 @@
  */
 package tr.com.serkanozal.mysafe.impl.instrument;
 
+import java.util.HashSet;
+import java.util.Set;
+
 class CompositeMySafeInstrumenter implements MySafeInstrumenter {
 
+    private final Set<String> ignoredOnes;
     private final MySafeInstrumenter[] instrumenters;
     
     CompositeMySafeInstrumenter(MySafeInstrumenter[] instrumenters) {
         this.instrumenters = instrumenters;
+        String ignoreByMySafeProperty = System.getProperty("mysafe.ignoreByMySafe");
+        if (ignoreByMySafeProperty != null) {
+            String[] ignoreByMySafePropertyParts = ignoreByMySafeProperty.split(",");
+            ignoredOnes = new HashSet<String>(ignoreByMySafePropertyParts.length);
+            for (String ignoredClass : ignoreByMySafePropertyParts) {
+                ignoredOnes.add(ignoredClass);
+            }
+        } else {
+            ignoredOnes = null;
+        }
     }
     
     @Override
     public byte[] instrument(String className, byte[] classData) {
+        if (ignoredOnes != null) {
+            for (String ignoredClass : ignoredOnes) {
+                if (className.startsWith(ignoredClass)) {
+                    return classData;
+                }
+            }
+        }
+        
         for (MySafeInstrumenter instrumenter : instrumenters) {
             classData = instrumenter.instrument(className, classData);
         }

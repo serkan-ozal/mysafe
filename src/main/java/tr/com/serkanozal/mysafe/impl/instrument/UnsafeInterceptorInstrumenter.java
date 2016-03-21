@@ -15,9 +15,6 @@
  */
 package tr.com.serkanozal.mysafe.impl.instrument;
 
-import java.util.HashSet;
-import java.util.Set;
-
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
@@ -25,30 +22,19 @@ import org.objectweb.asm.MethodAdapter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-import tr.com.serkanozal.mysafe.config.IgnoreUnsafe;
+import tr.com.serkanozal.mysafe.config.IgnoreByMySafe;
 
 class UnsafeInterceptorInstrumenter implements MySafeInstrumenter {
 
     private final boolean USE_CUSTOM_MEMORY_MANAGEMENT = 
             Boolean.getBoolean("mysafe.useCustomMemoryManagement");
     private final boolean SAFE_MEMORY_ACCESS_MODE_ENABLED;
-    private final Set<String> IGNORE_UNSAFE_FOR_CLASSES;
     
     UnsafeInterceptorInstrumenter() {
         if (USE_CUSTOM_MEMORY_MANAGEMENT) {
             SAFE_MEMORY_ACCESS_MODE_ENABLED = false;
         } else {
             SAFE_MEMORY_ACCESS_MODE_ENABLED = Boolean.getBoolean("mysafe.enableSafeMemoryAccessMode");
-        }
-        String ignoreUnsafeForClasses = System.getProperty("mysafe.ignoreUnsafeForClasses");
-        if (ignoreUnsafeForClasses != null) {
-            String[] ignoreUnsafeForClassesParts = ignoreUnsafeForClasses.split(",");
-            IGNORE_UNSAFE_FOR_CLASSES = new HashSet<String>(ignoreUnsafeForClassesParts.length);
-            for (String ignoreUnsafeForClass : ignoreUnsafeForClassesParts) {
-                IGNORE_UNSAFE_FOR_CLASSES.add(ignoreUnsafeForClass);
-            }
-        } else {
-            IGNORE_UNSAFE_FOR_CLASSES = null;
         }
     }
     
@@ -62,14 +48,6 @@ class UnsafeInterceptorInstrumenter implements MySafeInstrumenter {
                 || className.startsWith("org.cliffc.high_scale_lib")
                 || "sun.misc.Unsafe".equals(className)) {
             return classData;
-        }
-        
-        if (IGNORE_UNSAFE_FOR_CLASSES != null) {
-            for (String ignoreUnsafeForClass : IGNORE_UNSAFE_FOR_CLASSES) {
-                if (className.startsWith(ignoreUnsafeForClass)) {
-                    return classData;
-                }
-            }
         }
 
         ClassReader cr = new ClassReader(classData);
@@ -94,7 +72,7 @@ class UnsafeInterceptorInstrumenter implements MySafeInstrumenter {
     private static class UnsafeClassWriter extends ClassWriter {
         
         private static final String IGNORE_UNSAFE_ANNOTATION_DESC = 
-                "L" + IgnoreUnsafe.class.getName().replace(".", "/") + ";";
+                "L" + IgnoreByMySafe.class.getName().replace(".", "/") + ";";
         
         private final boolean useCustomMemoryManagement;
         private final boolean safeMemoryAccessModeEnabled;

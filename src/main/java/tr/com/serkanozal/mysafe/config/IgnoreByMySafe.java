@@ -21,12 +21,12 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Marks a class to be ignored for {@link sun.misc.Unsafe} calls instrumentation.
+ * Marks a class to be ignored by <b>MySafe</b>.
  * 
  * @author Serkan OZAL
  */
 @Target({ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
-public @interface IgnoreUnsafe {
+public @interface IgnoreByMySafe {
 	
 }

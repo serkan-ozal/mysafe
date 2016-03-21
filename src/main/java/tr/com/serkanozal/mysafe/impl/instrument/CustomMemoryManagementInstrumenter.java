@@ -35,8 +35,6 @@ import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.CtMethod;
 import javassist.NotFoundException;
-import javassist.bytecode.CodeAttribute;
-import javassist.bytecode.LineNumberAttribute;
 
 class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
 
@@ -245,7 +243,6 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         }    
     }
 
-    @SuppressWarnings("unchecked")
     private void instrumentAllocationPoint(CtClass clazz, CtMethod method, AllocationPointConfig allocationPointConfig) 
             throws NotFoundException, CannotCompileException {
         CtClass returnType = method.getReturnType();
@@ -303,15 +300,16 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
         
+        /*
         CodeAttribute originalCodeAttribute = method.getMethodInfo().getCodeAttribute();
         LineNumberAttribute originalLineNumberAttribute = (LineNumberAttribute) originalCodeAttribute.getAttribute(LineNumberAttribute.tag);
         CodeAttribute generatedCodeAttribute = generatedMethod.getMethodInfo().getCodeAttribute();
         generatedCodeAttribute.getAttributes().add(originalLineNumberAttribute);
-
+        */
+        
         clazz.addMethod(generatedMethod);
     }
     
-    @SuppressWarnings("unchecked")
     private void instrumentFreePoint(CtClass clazz, CtMethod method, FreePointConfig freePointConfig) 
             throws NotFoundException, CannotCompileException {
         CtClass returnType = method.getReturnType();
@@ -372,15 +370,16 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
         
+        /*
         CodeAttribute originalCodeAttribute = method.getMethodInfo().getCodeAttribute();
         LineNumberAttribute originalLineNumberAttribute = (LineNumberAttribute) originalCodeAttribute.getAttribute(LineNumberAttribute.tag);
         CodeAttribute generatedCodeAttribute = generatedMethod.getMethodInfo().getCodeAttribute();
         generatedCodeAttribute.getAttributes().add(originalLineNumberAttribute);
+        */
         
         clazz.addMethod(generatedMethod);
     }
     
-    @SuppressWarnings("unchecked")
     private void instrumentReallocationPoint(CtClass clazz, CtMethod method, ReallocationPointConfig reallocationPointConfig) 
             throws NotFoundException, CannotCompileException {
         CtClass returnType = method.getReturnType();
@@ -457,10 +456,12 @@ class CustomMemoryManagementInstrumenter implements MySafeInstrumenter {
         generatedMethodBody.append("}");
         generatedMethod.setBody(generatedMethodBody.toString());
         
+        /*
         CodeAttribute originalCodeAttribute = method.getMethodInfo().getCodeAttribute();
         LineNumberAttribute originalLineNumberAttribute = (LineNumberAttribute) originalCodeAttribute.getAttribute(LineNumberAttribute.tag);
         CodeAttribute generatedCodeAttribute = generatedMethod.getMethodInfo().getCodeAttribute();
         generatedCodeAttribute.getAttributes().add(originalLineNumberAttribute);
+        */
         
         clazz.addMethod(generatedMethod);
     }
