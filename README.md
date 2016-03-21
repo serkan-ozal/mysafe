@@ -100,6 +100,8 @@ Latest version of **MySafe** is `2.0-SNAPSHOT`.
 
 * **`mysafe.threadLocalMemoryUsagePatternExist`:** Enables thread-local based storages for allocated memories and caller informations. Since storages are thread-local, they are lock free and no need to any synchronization. By these advantages, they perform better than lock guarded and synchonized global storages. If memory usages are thread-local in your application, it is highly recommended to enable this property. Thread-local memory usage means that once a memory is allocated in a thread, it is only accessed and free within that thread.
 
+* **`mysafe.ignoreUnsafeForClasses`:** Specifies classes/packages to be ignored for `sun.misc.Unsafe` instrumentation. There can be multiple configurations seperated by comma (`,`). Also via `@IgnoreUnsafe` annotation, classes can be marked to be ignored for `sun.misc.Unsafe` instrumentation.
+
 * **`mysafe.threadLocalMemoryUsageDeciderImpl`:** Specifies the `ThreadLocalMemoryUsageDecider` implementation to be used for deciding which threads use memory as thread-local and which ones use as global. This property is used when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled. By default all threads are assumed as they are using memory as thread-local when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled.
 
 * **`mysafe.enableCallerInfoMonitoringMode`:** Enables tracking caller informations on memory allocation (class name, method name and line number) with at most `4` depth by default. Caller informations are dumped while dumping all allocated memories through `MySafe::dumpAllocatedMemories` if it is enabled. Default value is `false`.
