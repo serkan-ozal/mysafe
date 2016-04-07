@@ -248,6 +248,35 @@ PrintStream myPrintStream = ...
 MySafe.dumpAllocatedMemories(myPrintStream);
 ```
 
+5.6. Dumping Caller Paths 
+--------------
+All unique caller paths with allocated memories through them can be dumped  via `MySafe.dumpCallerPaths()` or `MySafe.dumpCallerPaths(PrintStream)` methods if caller info monitoring is enabled by `mysafe.enableCallerInfoMonitoringMode` property.
+
+Here is its sample usage:
+``` java
+// Dump all caller paths with allocated memories through them to console
+MySafe.dumpCallerPaths();
+
+...
+
+PrintStream myPrintStream = ...
+// Dump all caller paths with allocated memories through them to `myPrintStream`
+MySafe.dumpCallerPaths(myPrintStream);
+```
+
+5.7. Generating Caller Path Diagram 
+--------------
+All unique caller paths with allocated memories through them can be dumped via `MySafe.generateCallerPathDiagrams()` method if caller info monitoring is enabled by `mysafe.enableCallerInfoMonitoringMode` property.
+
+Here is its sample usage:
+``` java
+// Generate caller path diagram
+MySafe.generateCallerPathDiagrams();
+```
+
+Here is the sample generated caller path diagram:
+![mysafe-caller-path](https://github.com/serkan-ozal/mysafe/blob/master/src/test/resources/mysafe-caller-path.png) 
+
 6. Demo
 ==============
 [Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/Demo.java) is its demo application.
@@ -268,3 +297,4 @@ Bug fixes and enhancements at each release:
 * Ability to specify custom memory allocation, reallocation and free points (methods) instead of `Unsafe`'s `allocateMemory`, `freeMemory` and `reallocateMemory` methods.
 * Ability to monitor stacktraces of memory allocations by **class name**, **method name** (or **constructor**/**class initializer**) and **line number**.
 * Ability to storing allocated memory addresses and caller informations (if enabled) at off-heap instead of heap.
+* Ability to generate caller path diagrams.
