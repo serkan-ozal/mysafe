@@ -283,6 +283,8 @@ Here is the sample generated caller path diagram:
 
 [Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/CustomMemoryManagementDemo.java) is its demo application for demonstrating custom memory management support.
 
+[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/NativeMemoryLeakHuntingDemo.java) is its demo application for demonstrating hunting native memory leaks via **MySafe**.
+
 7. Fixes & Enhancements
 ==============
 Bug fixes and enhancements at each release:
