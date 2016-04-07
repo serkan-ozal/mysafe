@@ -40,6 +40,7 @@ import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessor;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessorFactory;
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfo;
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfo.CallerInfoEntry;
+import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfoAllocatedMemory;
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfoStorage;
 import tr.com.serkanozal.mysafe.impl.callerinfo.DefaultCallerInfoStorage;
 import tr.com.serkanozal.mysafe.impl.callerinfo.ThreadLocalAwareCallerInfoStorage;
@@ -50,6 +51,9 @@ import tr.com.serkanozal.mysafe.impl.storage.NavigatableAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalAwareAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalDefaultAllocatedMemoryStorage;
 import tr.com.serkanozal.mysafe.impl.storage.ThreadLocalNavigatableAllocatedMemoryStorage;
+import tr.com.serkanozal.mysafe.impl.util.HeapMemoryBackedLong2LongHashMap;
+import tr.com.serkanozal.mysafe.impl.util.Long2LongMap;
+import tr.com.serkanozal.mysafe.impl.util.Long2LongMap.LongLongCursor;
 import static tr.com.serkanozal.mysafe.AllocatedMemoryStorage.INVALID;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.READ;
 import static tr.com.serkanozal.mysafe.IllegalMemoryAccessListener.MemoryAccessType.WRITE;
@@ -711,6 +715,98 @@ public final class MySafeDelegator {
         if (size % 16 != 0) {
             ps.println();
         }     
+    }
+    
+    public static void dumpCallerPaths(PrintStream ps) {
+        if (CALLER_INFO_MONITORING_MODE_ENABLED) {
+            final Long2LongMap callerInfoMemoryUsageMap = new HeapMemoryBackedLong2LongHashMap(0);
+            ALLOCATED_MEMORY_STORAGE.iterate(new AllocatedMemoryIterator() {
+                @Override
+                public void onAllocatedMemory(long address, long size) {
+                    CallerInfo callerInfo = CALLER_INFO_STORAGE.findCallerInfoByConnectedAddress(address);
+                    addCallerInfoMemoryUsage(callerInfoMemoryUsageMap, callerInfo, size);
+                }
+            });
+            LongLongCursor cursor = callerInfoMemoryUsageMap.cursor();
+            while (cursor.advance()) {
+                long callerInfoKey = cursor.key();
+                long allocatedMemory = cursor.value();
+                ps.println("Allocated memory : " + allocatedMemory + " bytes");
+                ps.println("Call Path        :");
+                if (callerInfoKey == CallerInfo.NON_EXISTING_CALLER_INFO_KEY) {
+                    ps.println("\tNo related caller info!");
+                } else if (callerInfoKey == CallerInfo.EMPTY_CALLER_INFO_KEY) {
+                    ps.println("\tUnknown caller info because of not applicable instrumentation!");
+                } else {
+                    CallerInfo callerInfo = CALLER_INFO_STORAGE.getCallerInfo(callerInfoKey);
+                    for (CallerInfoEntry callerInfoEntry : callerInfo.callerInfoEntries) {
+                        ps.println("\t|- " + callerInfoEntry.className + "." + 
+                                   callerInfoEntry.methodName + ":" +
+                                   callerInfoEntry.lineNumber);
+                    }
+                } 
+                ps.println();
+                ps.print("========================================");
+                ps.print("========================================");
+                ps.println();
+                ps.println();
+            }
+        } else {
+            ps.println("Caller info monitoring is not enabled. " + 
+                       "Please enable it with 'mysafe.enableCallerInfoMonitoringMode' system property");
+        }
+    }
+    
+    public static void generateCallerPathDiagrams() {
+        generateCallerPathDiagrams(CallerPathDiagramGenerator.DEFAULT_DIAGRAM_NANE);
+    }
+    
+    public static void generateCallerPathDiagrams(String diagramName) {
+        if (CALLER_INFO_MONITORING_MODE_ENABLED) {
+            final Long2LongMap callerInfoMemoryUsageMap = new HeapMemoryBackedLong2LongHashMap(0);
+            ALLOCATED_MEMORY_STORAGE.iterate(new AllocatedMemoryIterator() {
+                @Override
+                public void onAllocatedMemory(long address, long size) {
+                    CallerInfo callerInfo = CALLER_INFO_STORAGE.findCallerInfoByConnectedAddress(address);
+                    addCallerInfoMemoryUsage(callerInfoMemoryUsageMap, callerInfo, size);
+                }
+            });
+            LongLongCursor cursor = callerInfoMemoryUsageMap.cursor();
+            List<CallerInfoAllocatedMemory> callerInfoAllocatedMemories = 
+                    new ArrayList<CallerInfoAllocatedMemory>((int) callerInfoMemoryUsageMap.size());
+            while (cursor.advance()) {
+                long callerInfoKey = cursor.key();
+                long allocatedMemory = cursor.value();
+                CallerInfo callerInfo;
+                if (callerInfoKey == CallerInfo.NON_EXISTING_CALLER_INFO_KEY) {
+                    callerInfo = CallerInfo.NON_EXISTING_CALLER_INFO;
+                } else if (callerInfoKey == CallerInfo.EMPTY_CALLER_INFO_KEY) {
+                    callerInfo = CallerInfo.EMPTY_CALLER_INFO;
+                } else {
+                    callerInfo = CALLER_INFO_STORAGE.getCallerInfo(callerInfoKey);
+                } 
+                callerInfoAllocatedMemories.add(new CallerInfoAllocatedMemory(callerInfo, allocatedMemory));
+            }
+            CallerPathDiagramGenerator.generateCallerPathDiagram(diagramName, callerInfoAllocatedMemories);
+        } else {
+            throw new IllegalStateException(
+                       "Caller info monitoring is not enabled. " + 
+                       "Please enable it with 'mysafe.enableCallerInfoMonitoringMode' system property");
+        }
+    }
+    
+    private static void addCallerInfoMemoryUsage(Long2LongMap callerInfoMemoryUsageMap, 
+                                                 CallerInfo callerInfo, 
+                                                 long size) {
+        long callerInfoKey;
+        if (callerInfo == null) {
+            callerInfoKey = CallerInfo.NON_EXISTING_CALLER_INFO_KEY;
+        } else {
+            callerInfoKey = callerInfo.key;
+        }
+        long allocatedMemory = callerInfoMemoryUsageMap.get(callerInfoKey);
+        allocatedMemory += size;
+        callerInfoMemoryUsageMap.put(callerInfoKey, allocatedMemory);
     }
     
     //////////////////////////////////////////////////////////////////////////

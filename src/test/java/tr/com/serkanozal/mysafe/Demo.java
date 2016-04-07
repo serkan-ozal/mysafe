@@ -172,6 +172,12 @@ public class Demo {
             
             // Dump all allocated memories to console
             MySafe.dumpAllocatedMemories();
+            
+            // Dump all caller path with allocated memories through them to console
+            MySafe.dumpCallerPaths();
+            
+            // Generate caller path diagram
+            MySafe.generateCallerPathDiagrams();
         }
         
     }

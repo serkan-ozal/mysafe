@@ -192,8 +192,42 @@ public final class MySafe {
      * 
      * @param ps the {@link PrintStream} instance to dump allocated memories
      */
-    public static void dumpAllocatedMemories(final PrintStream ps) {
+    public static void dumpAllocatedMemories(PrintStream ps) {
         MySafeDelegator.dumpAllocatedMemories(ps, UNSAFE);
+    }
+    
+    /**
+     * Dumps the caller paths, with allocated memory informations through them, 
+     * to console (standard output).
+     */
+    public static void dumpCallerPaths() {
+        dumpCallerPaths(System.out);
+    }
+    
+    /**
+     * Dumps the caller paths, with allocated memory informations through them, 
+     * to given {@link PrintStream}.
+     * 
+     * @param ps the {@link PrintStream} instance to dump caller paths
+     */
+    public static void dumpCallerPaths(PrintStream ps) {
+        MySafeDelegator.dumpCallerPaths(ps);
+    }
+    
+    /**
+     * Generates caller path diagram into default (<tt>mysafe-caller-path</tt>) file.
+     */
+    public static void generateCallerPathDiagrams() {
+        MySafeDelegator.generateCallerPathDiagrams();
+    }
+    
+    /**
+     * Generates caller path diagram into given file.
+     * 
+     * @param diagramName name of the file where diagram will be generated into
+     */
+    public static void generateCallerPathDiagrams(String diagramName) {
+        MySafeDelegator.generateCallerPathDiagrams(diagramName);
     }
     
 }

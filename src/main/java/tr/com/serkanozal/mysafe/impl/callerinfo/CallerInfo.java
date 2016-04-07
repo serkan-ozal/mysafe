@@ -22,8 +22,12 @@ public class CallerInfo {
     private static final int DEFAULT_MAX_CALLER_DEPTH = 4;
     public static final int MAX_CALLER_DEPTH = 
             Integer.getInteger("mysafe.maxCallerInfoDepth", DEFAULT_MAX_CALLER_DEPTH);
+    
+    public static final long NON_EXISTING_CALLER_INFO_KEY = 0L;
+    public static final CallerInfo NON_EXISTING_CALLER_INFO = new CallerInfo(NON_EXISTING_CALLER_INFO_KEY, null);
+    
     public static final long EMPTY_CALLER_INFO_KEY = -1L;
-    public static final CallerInfo  EMPTY_CALLER_INFO = new CallerInfo(EMPTY_CALLER_INFO_KEY, null);
+    public static final CallerInfo EMPTY_CALLER_INFO = new CallerInfo(EMPTY_CALLER_INFO_KEY, null);
     
     public final long key;
     public final List<CallerInfoEntry> callerInfoEntries;
@@ -43,6 +47,11 @@ public class CallerInfo {
             this.className = className;
             this.methodName = methodName;
             this.lineNumber = lineNumber;
+        }
+        
+        @Override
+        public String toString() {
+            return className + "." + methodName + ":" + lineNumber;
         }
         
     }
