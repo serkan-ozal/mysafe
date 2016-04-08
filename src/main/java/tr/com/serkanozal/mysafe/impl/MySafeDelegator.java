@@ -375,6 +375,7 @@ public final class MySafeDelegator {
         if (callerInfoKey == 0) {
             // New call path
             LOGGER.debug("A new call path has been detected ...");
+            skipCallerCount++;
             StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
             Class<?> classAtHeadOfCallPath = null;
             String methodNameAtHeadOfCallPath = null;
@@ -434,7 +435,6 @@ public final class MySafeDelegator {
                                                               callerInfoKey, 
                                                               depthAtHeadOfCallPath);
             }    
-            threadLocalCallerInfo.callerInfoKey = callerInfoKey;
         }
         CALLER_INFO_STORAGE.connectAddressWithCallerInfo(address, callerInfoKey);
     }

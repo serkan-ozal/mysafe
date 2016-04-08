@@ -41,7 +41,7 @@ class CallerPathDiagramGenerator {
     private static final int CALLER_INFO_H_GAP = 8;
     private static final int CALLER_INFO_V_GAP = 8;
     
-    private static final int CALLER_INFO_UNIT_WIDTH = 600;
+    private static final int CALLER_INFO_UNIT_WIDTH = 800;
     private static final int CALLER_INFO_UNIT_H_GAP = 50;
     private static final int CALLER_INFO_FRAME_WIDTH = CALLER_INFO_UNIT_WIDTH + (2 * CALLER_INFO_UNIT_H_GAP);
     

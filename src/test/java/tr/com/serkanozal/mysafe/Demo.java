@@ -38,7 +38,6 @@ public class Demo {
     static {
         System.setProperty("mysafe.enableSafeMemoryManagementMode", "true");
         System.setProperty("mysafe.enableSafeMemoryAccessMode", "true");
-        System.setProperty("mysafe.enableCallerInfoMonitoringMode", "true");
     }
     
     public static void main(String[] args) throws Exception {
@@ -172,12 +171,6 @@ public class Demo {
             
             // Dump all allocated memories to console
             MySafe.dumpAllocatedMemories();
-            
-            // Dump all caller paths with allocated memories through them to console
-            MySafe.dumpCallerPaths();
-            
-            // Generate caller path diagram
-            MySafe.generateCallerPathDiagrams();
         }
         
     }
