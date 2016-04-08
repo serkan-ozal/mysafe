@@ -204,7 +204,7 @@ public class NativeMemoryLeakHuntingDemo {
             MySafe.dumpCallerPaths();
             
             // Generate caller path diagram
-            MySafe.generateCallerPathDiagrams();
+            MySafe.generateCallerPathDiagrams("native-memory-leak-hunting");
         }
 
     }
