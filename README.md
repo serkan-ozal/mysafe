@@ -275,7 +275,7 @@ MySafe.generateCallerPathDiagrams();
 ```
 
 Here is the sample generated caller path diagram:
-![mysafe-caller-path](https://github.com/serkan-ozal/mysafe/blob/master/src/test/resources/mysafe-caller-path.png) 
+![native-memory-leak-hunting](https://github.com/serkan-ozal/mysafe/blob/master/src/test/resources/native-memory-leak-hunting.png) 
 
 6. Demo
 ==============
@@ -284,6 +284,9 @@ Here is the sample generated caller path diagram:
 [Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/CustomMemoryManagementDemo.java) is its demo application for demonstrating custom memory management support.
 
 [Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/NativeMemoryLeakHuntingDemo.java) is its demo application for demonstrating hunting native memory leaks via **MySafe**.
+
+Here is the generated caller path diagram for the `NativeMemoryLeakHuntingDemo` which show the cause of native memory leak:
+![native-memory-leak-hunting](https://github.com/serkan-ozal/mysafe/blob/master/src/test/resources/native-memory-leak-hunting.png) 
 
 7. Fixes & Enhancements
 ==============
