@@ -15,7 +15,6 @@
  */
 package tr.com.serkanozal.mysafe.impl.callerinfo;
 
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 
 import sun.misc.Unsafe;
@@ -29,12 +28,6 @@ public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCall
     
     public ThreadLocalDefaultCallerInfoStorage(Unsafe unsafe, ScheduledExecutorService scheduler) {
         super(unsafe, scheduler);
-    }
-    
-    public ThreadLocalDefaultCallerInfoStorage(Unsafe unsafe, 
-                                               ConcurrentMap<Long, CallerInfo> callerInfoMap,
-                                               ScheduledExecutorService scheduler) {
-        super(unsafe, callerInfoMap, scheduler);
     }
 
     @Override
@@ -53,20 +46,10 @@ public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCall
         private InternalThreadLocalDefaultCallerInfoStorage(Unsafe unsafe) {
             super(unsafe);
         }
-
+        
         @Override
-        public CallerInfo findCallerInfoByConnectedAddress(long address) {
-            acquire();
-            try {
-                long callerInfoKey = allocationCallerInfoMap.get(address);
-                if (callerInfoKey != -1) {
-                    return ThreadLocalDefaultCallerInfoStorage.this.getCallerInfo(callerInfoKey);
-                } else {
-                    return null;
-                }
-            } finally {
-                free();
-            }
+        public long getCallerInfoKey(long address) {
+            return allocationCallerInfoMap.get(address);
         }
 
         @Override

@@ -31,14 +31,8 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
     private final ConcurrentMap<SoftReference<Thread>, CallerInfoStorage> allCallerInfoStorages =
             new ConcurrentHashMap<SoftReference<Thread>, CallerInfoStorage>();
     private final ThreadLocal<CallerInfoStorage> threadLocalCallerInfoStorages;
-    private final ConcurrentMap<Long, CallerInfo> callerInfoMap;
 
-    public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe, ScheduledExecutorService scheduler) {
-        this(unsafe, null, scheduler);
-    }
-    
     public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe, 
-                                                ConcurrentMap<Long, CallerInfo> callerInfoMap, 
                                                 ScheduledExecutorService scheduler) {
         this.unsafe = unsafe;
         this.threadLocalCallerInfoStorages = new ThreadLocal<CallerInfoStorage>() {
@@ -50,50 +44,16 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
                 return callerInfoStorage;
             };
         };
-        if (callerInfoMap == null) {
-            this.callerInfoMap = new ConcurrentHashMap<Long, CallerInfo>();
-        } else {
-            this.callerInfoMap = callerInfoMap;
-        }
         scheduler.scheduleAtFixedRate(new IdleThreadLocalCallerInfoStorageCleaner(), 5, 5, TimeUnit.SECONDS);
     }
     
     abstract protected CallerInfoStorage createInternalThreadLocalCallerInfoStorage(Unsafe unsafe);
 
     @Override
-    public final CallerInfo getCallerInfo(long callerInfoKey) {
-        return callerInfoMap.get(callerInfoKey);
+    public long getCallerInfoKey(long address) {
+        return threadLocalCallerInfoStorages.get().getCallerInfoKey(address);
     }
-
-    @Override
-    public final CallerInfo putCallerInfo(long callerInfoKey, CallerInfo callerInfo) {
-        return callerInfoMap.putIfAbsent(callerInfoKey, callerInfo);
-    }
-
-    @Override
-    public final CallerInfo removeCallerInfo(long callerInfoKey) {
-        return callerInfoMap.remove(callerInfoKey);
-    }
-
-    @Override
-    public CallerInfo findCallerInfoByConnectedAddress(long address) {
-        Iterator<Map.Entry<SoftReference<Thread>, CallerInfoStorage>> iter = 
-                allCallerInfoStorages.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<SoftReference<Thread>, CallerInfoStorage> entry = iter.next();
-            if (isIdle(entry)) {
-                iter.remove();
-            } else {
-                CallerInfoStorage callerInfoStorage = entry.getValue();
-                CallerInfo callerInfo = callerInfoStorage.findCallerInfoByConnectedAddress(address);
-                if (callerInfo != null) {
-                    return callerInfo;
-                }
-            }
-        }
-        return null;
-    }
-
+    
     @Override
     public void connectAddressWithCallerInfo(long address, long callerInfoKey) {
         threadLocalCallerInfoStorages.get().connectAddressWithCallerInfo(address, callerInfoKey);
@@ -189,24 +149,6 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
         
         protected void free() {
             state = AVAILABLE;
-        }
-        
-        @Override
-        public final CallerInfo getCallerInfo(long callerInfoKey) {
-            // Should not be called
-            throw new UnsupportedOperationException();
-        }
-        
-        @Override
-        public final CallerInfo putCallerInfo(long callerInfoKey, CallerInfo callerInfo) {
-            // Should not be called
-            throw new UnsupportedOperationException();
-        }
-        
-        @Override
-        public final CallerInfo removeCallerInfo(long callerInfoKey) {
-            // Should not be called
-            throw new UnsupportedOperationException();
         }
 
     }

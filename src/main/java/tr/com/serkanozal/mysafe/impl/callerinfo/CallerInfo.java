@@ -15,45 +15,20 @@
  */
 package tr.com.serkanozal.mysafe.impl.callerinfo;
 
-import java.util.List;
-
 public class CallerInfo {
 
-    private static final int DEFAULT_MAX_CALLER_DEPTH = 4;
+    private static final int MAX_CALLER_DEPTH_LIMIT = 4;
+    private static final int DEFAULT_MAX_CALLER_DEPTH = MAX_CALLER_DEPTH_LIMIT;
     public static final int MAX_CALLER_DEPTH = 
-            Integer.getInteger("mysafe.maxCallerInfoDepth", DEFAULT_MAX_CALLER_DEPTH);
-    
-    public static final long NON_EXISTING_CALLER_INFO_KEY = 0L;
-    public static final CallerInfo NON_EXISTING_CALLER_INFO = new CallerInfo(NON_EXISTING_CALLER_INFO_KEY, null);
-    
-    public static final long EMPTY_CALLER_INFO_KEY = -1L;
-    public static final CallerInfo EMPTY_CALLER_INFO = new CallerInfo(EMPTY_CALLER_INFO_KEY, null);
-    
-    public final long key;
-    public final List<CallerInfoEntry> callerInfoEntries;
+            Math.min(MAX_CALLER_DEPTH_LIMIT, 
+                     Integer.getInteger("mysafe.maxCallerInfoDepth", DEFAULT_MAX_CALLER_DEPTH));
 
-    public CallerInfo(long key, List<CallerInfoEntry> callerInfoEntries) {
+    public final long key;
+    public final String[] callPoints;
+
+    public CallerInfo(long key, String[] callPoints) {
         this.key = key;
-        this.callerInfoEntries = callerInfoEntries;
-    }
-    
-    public static class CallerInfoEntry {
-        
-        public final String className;
-        public final String methodName;
-        public final int lineNumber;
-        
-        public CallerInfoEntry(String className, String methodName, int lineNumber) {
-            this.className = className;
-            this.methodName = methodName;
-            this.lineNumber = lineNumber;
-        }
-        
-        @Override
-        public String toString() {
-            return className + "." + methodName + ":" + lineNumber;
-        }
-        
+        this.callPoints = callPoints;
     }
 
 }

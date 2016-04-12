@@ -41,7 +41,6 @@ public class NativeMemoryLeakHuntingDemo {
         System.setProperty("mysafe.enableSafeMemoryManagementMode", "true");
         System.setProperty("mysafe.enableCallerInfoMonitoringMode", "true");
         System.setProperty("mysafe.threadLocalMemoryUsagePatternExist", "true");
-        System.setProperty("mysafe.maxCallerInfoDepth", "2");
     }
     
     public static void main(String[] args) throws Exception {
@@ -78,6 +77,7 @@ public class NativeMemoryLeakHuntingDemo {
         private static final int ITERATION_COUNT = 5 * ENTRY_COUNT;
         
         private static final Unsafe unsafe = MySafe.getUnsafe();
+        private static final Random random = new Random();
         
         private static long memoryUsage;
         
@@ -111,6 +111,14 @@ public class NativeMemoryLeakHuntingDemo {
             free(indexTableAddress, ENTRY_COUNT * ENTRY_LENGTH);
         }
         
+        private static long allocateKey(int keySize) {
+            return allocate(keySize);
+        }
+        
+        private static long allocateValue(int valueSize) {
+            return allocate(valueSize);
+        }
+        
         private static void putEntry(long indexTableAddress, int index, 
                                      int keySize, int valueSize) {
             long keyPtrAddress = indexTableAddress + (index * ENTRY_LENGTH);
@@ -118,8 +126,8 @@ public class NativeMemoryLeakHuntingDemo {
             long keySizeAddress = valuePtrAddress + 8;
             long valueSizeAddress = keySizeAddress + 4;
             
-            long newKeyAddress = allocate(keySize);
-            long newValueAddress = allocate(valueSize);
+            long newKeyAddress = allocateKey(keySize);
+            long newValueAddress = allocateValue(valueSize);
             
             long oldKeyAddress = unsafe.getLong(keyPtrAddress);
             if (oldKeyAddress > 0) {
@@ -168,19 +176,23 @@ public class NativeMemoryLeakHuntingDemo {
             return false;
         }
         
-        private static void run() {
-            Random random = new Random();
+        private static void generateAndPutEntry(long indexTableAddress) {
+            int index = random.nextInt(ENTRY_COUNT);
+            int keySize = 1 + random.nextInt(MAX_KEY_LENGTH);
+            int valueSize = 1 + random.nextInt(MAX_VALUE_LENGTH);
             
+            // Put an entry with specified key size and value size at the given index
+            putEntry(indexTableAddress, index, keySize, valueSize);
+        }
+        
+        private static void run() {
             // Allocate index table
             long indexTableAddress = allocateIndexTable();
             
             for (int i = 0; i < ITERATION_COUNT; i++) {
-                int index = random.nextInt(ENTRY_COUNT);
-                int keySize = 1 + random.nextInt(MAX_KEY_LENGTH);
-                int valueSize = 1 + random.nextInt(MAX_VALUE_LENGTH);
                 try {
-                    // Put an entry with specified key size and value size at the given index
-                    putEntry(indexTableAddress, index, keySize, valueSize);
+                    // Generate an entry and put it
+                    generateAndPutEntry(indexTableAddress);
                 } catch (OutOfMemoryError e) {
                     System.err.println(e.getMessage());
                     int removedEntryCount = 0;

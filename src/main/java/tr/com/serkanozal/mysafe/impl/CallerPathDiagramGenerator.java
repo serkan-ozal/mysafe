@@ -28,7 +28,6 @@ import javax.imageio.ImageIO;
 
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfo;
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfoAllocatedMemory;
-import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfo.CallerInfoEntry;
 
 class CallerPathDiagramGenerator {
 
@@ -90,9 +89,9 @@ class CallerPathDiagramGenerator {
                 int y2 = y1 + CALLER_INFO_UNIT_V_GAP + CALLER_INFO_V_GAP + CALLER_INFO_FONT_SIZE;
                 g2d.drawString("Allocated memory: " + generateAllocatedMemoryString(allocatedMemory), x2, y2);
                 
-                List<CallerInfoEntry> callerInfoEntries = callerInfo.callerInfoEntries;
-                for (int j = 0; j < callerInfoEntries.size(); j++) {
-                    CallerInfoEntry callerInfoEntry = callerInfoEntries.get(j);
+                String[] callPoints = callerInfo.callPoints;
+                for (int j = 0; j <callPoints.length; j++) {
+                    String callPoint = callPoints[j];
                     
                     int x3 = x1 + CALLER_INFO_UNIT_H_GAP;
                     int y3 = y1 + ((j + 2) * CALLER_INFO_UNIT_V_GAP) + ((j + 1) * CALLER_INFO_UNIT_HEIGHT);
@@ -113,7 +112,7 @@ class CallerPathDiagramGenerator {
                         g2d.fillPolygon(xPoints, yPoints, 3);
                     }
                     
-                    String callerInfoUnit = callerInfoEntry.toString();
+                    String callerInfoUnit = callPoint;
                     int callerInfoUnitTextWidth = fm.stringWidth(callerInfoUnit);
                     int x5 = x3 + CALLER_INFO_H_GAP + ((CALLER_INFO_UNIT_WIDTH - callerInfoUnitTextWidth) / 2);
                     int y5 = y3 + CALLER_INFO_V_GAP + CALLER_INFO_FONT_SIZE;

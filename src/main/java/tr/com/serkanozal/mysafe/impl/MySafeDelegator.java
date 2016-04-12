@@ -21,12 +21,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Logger;
+import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 
 import sun.misc.Unsafe;
 import tr.com.serkanozal.mysafe.AllocatedMemoryIterator;
@@ -39,7 +42,6 @@ import tr.com.serkanozal.mysafe.ThreadLocalMemoryUsageDecider;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessor;
 import tr.com.serkanozal.mysafe.impl.accessor.UnsafeMemoryAccessorFactory;
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfo;
-import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfo.CallerInfoEntry;
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfoAllocatedMemory;
 import tr.com.serkanozal.mysafe.impl.callerinfo.CallerInfoStorage;
 import tr.com.serkanozal.mysafe.impl.callerinfo.DefaultCallerInfoStorage;
@@ -79,6 +81,13 @@ public final class MySafeDelegator {
                     return new ThreadLocalCallerInfo();
                 };
             };
+    private static final NonBlockingHashMapLong<Boolean> PREMATURE_CALLER_INFOS =
+            new NonBlockingHashMapLong<Boolean>(16);
+    private static final AtomicInteger CALL_POINT_ID_GENERATOR = new AtomicInteger();
+    private static final ConcurrentMap<Short , String> CALL_POINT_ID_2_NAME_MAP = 
+            new ConcurrentHashMap<Short, String>(16);
+    private static final ConcurrentMap<String , Short> CALL_POINT_NAME_2_ID_MAP = 
+            new ConcurrentHashMap<String, Short>(16);
     private static final CallerInfoInjector CALLER_INFO_INJECTOR = new CallerInfoInjector();
     private static final AtomicLong ALLOCATED_MEMORY = new AtomicLong(0L);
     private static final int OBJECT_REFERENCE_SIZE;
@@ -348,97 +357,161 @@ public final class MySafeDelegator {
     //////////////////////////////////////////////////////////////////////////
     
     private static class ThreadLocalCallerInfo {
-        private long callerInfoKey;
-        private int callerDepth;
+
+        private long callerInfoKey = 0;
+        private int callPointIndex = 0;
+        
     }
     
-    public static void startThreadLocalCallTracking(long callerInfoKey, int callerDepth) {
-        ThreadLocalCallerInfo threadLocalCallerInfo = THREAD_LOCAL_CALLER_INFO_MAP.get();
-        if (callerDepth >= threadLocalCallerInfo.callerDepth) {
-            threadLocalCallerInfo.callerInfoKey = callerInfoKey;
-            threadLocalCallerInfo.callerDepth = callerDepth;
-        }   
+    private static long appendCallPointId(long callerInfoKey, short callPointId) {
+        callerInfoKey = callerInfoKey << 16;
+        callerInfoKey = callerInfoKey | callPointId;
+        return callerInfoKey;
     }
     
-    public static void finishThreadLocalCallTracking(int callerDepth) {
-        ThreadLocalCallerInfo threadLocalCallerInfo = THREAD_LOCAL_CALLER_INFO_MAP.get();
-        if (callerDepth >= threadLocalCallerInfo.callerDepth) {
-            threadLocalCallerInfo.callerInfoKey = 0;
-            threadLocalCallerInfo.callerDepth = 0;
-        }
+    private static long removeCallPointId(long callerInfoKey, short callPointId) {
+        short actualCallPointId = (short) (callerInfoKey & 0x0000FFFF);
+        assert actualCallPointId == callPointId;
+        callerInfoKey = callerInfoKey >>> 16;
+        return callerInfoKey;
     }
 
+    public static void pushThreadLocalCallPoint(short callPointId) {
+        ThreadLocalCallerInfo threadLocalCallerInfo = THREAD_LOCAL_CALLER_INFO_MAP.get();
+        threadLocalCallerInfo.callerInfoKey = 
+                appendCallPointId(threadLocalCallerInfo.callerInfoKey, callPointId);
+        threadLocalCallerInfo.callPointIndex++;
+    }
+    
+    public static void popThreadLocalCallPoint(short callPointId) {
+        ThreadLocalCallerInfo threadLocalCallerInfo = THREAD_LOCAL_CALLER_INFO_MAP.get();
+        assert threadLocalCallerInfo.callPointIndex > 0;
+        threadLocalCallerInfo.callerInfoKey = 
+                removeCallPointId(threadLocalCallerInfo.callerInfoKey, callPointId);
+        threadLocalCallerInfo.callPointIndex--;
+    }
+
+    private static short nextCallPointId() {
+        int nextCallPointId = CALL_POINT_ID_GENERATOR.get();
+        if (nextCallPointId > Short.MAX_VALUE) {
+            throw new IllegalStateException("No available id left for call point. " + 
+                                            "There can be " + Short.MAX_VALUE + " unique call point at most!");
+        }
+        nextCallPointId = CALL_POINT_ID_GENERATOR.incrementAndGet();
+        if (nextCallPointId > Short.MAX_VALUE) {
+            throw new IllegalStateException("No available id left for call point. " + 
+                                            "There can be " + Short.MAX_VALUE + " unique call point at most!");
+        }
+        return (short) nextCallPointId;
+    }
+    
     private static void saveCallerInfoOnAllocation(long address, int skipCallerCount) {
         skipCallerCount++;
         ThreadLocalCallerInfo threadLocalCallerInfo = THREAD_LOCAL_CALLER_INFO_MAP.get();
-        long callerInfoKey = threadLocalCallerInfo.callerInfoKey;
-        if (callerInfoKey == 0) {
+        int callPointIndex = threadLocalCallerInfo.callPointIndex;
+        assert callPointIndex >= 0;
+        if (callPointIndex == 0) {
             // New call path
             LOGGER.debug("A new call path has been detected ...");
-            skipCallerCount++;
-            StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
-            Class<?> classAtHeadOfCallPath = null;
-            String methodNameAtHeadOfCallPath = null;
-            int lineNumberAtHeadOfCallPath = -1;
-            int depthAtHeadOfCallPath = -1;
-            List<CallerInfoEntry> callerInfoEntries = 
-                    new ArrayList<CallerInfoEntry>(CallerInfo.MAX_CALLER_DEPTH);
             
-            for (int i = 0; i < CallerInfo.MAX_CALLER_DEPTH && i + skipCallerCount < stackTraceElements.length; i++) {
-                StackTraceElement stackTraceElement = stackTraceElements[i + skipCallerCount];
-                try {
-                    Class<?> clazz = classAtHeadOfCallPath = Class.forName(stackTraceElement.getClassName());
-                    // If this method will be instrumented,
-                    //      - `MySafeDelegator` should be known by the caller classloader
-                    //      - Caller method must not be native method
-                    if (classAtHeadOfCallPath.getClassLoader().loadClass(MySafeDelegator.class.getName()) != null
-                        &&
-                        !stackTraceElement.isNativeMethod()) {
-                        classAtHeadOfCallPath = clazz;
-                        methodNameAtHeadOfCallPath = stackTraceElement.getMethodName();
-                        lineNumberAtHeadOfCallPath = stackTraceElement.getLineNumber();
-                        depthAtHeadOfCallPath = i + 1;
-                        
-                        CallerInfoEntry callerInfoEntry = 
-                                new CallerInfoEntry(
-                                        stackTraceElement.getClassName(), 
-                                        stackTraceElement.getMethodName(),
-                                        stackTraceElement.getLineNumber());
-                        callerInfoEntries.add(callerInfoEntry);
-                        
-                        LOGGER.debug("\t- " + stackTraceElement.getClassName() + "." + 
-                                     stackTraceElement.getMethodName() + ":" + 
-                                     stackTraceElement.getLineNumber());
-                    }
-                } catch (ClassNotFoundException e) {
-                    LOGGER.error(e);
+            // Back-trace call path and instrument each method 
+            // by creating, registering and injecting call points.
+            backTraceAndInjectCallPoints(address, skipCallerCount);
+        } else {
+            long callerInfoKey = threadLocalCallerInfo.callerInfoKey;
+            if (callPointIndex < CallerInfo.MAX_CALLER_DEPTH) {
+                if (PREMATURE_CALLER_INFOS.containsKey(callerInfoKey)) {
+                    CALLER_INFO_STORAGE.connectAddressWithCallerInfo(address, callerInfoKey);
+                } else {
+                    /*
+                     * Back-trace call path and check 
+                     * whether current call path is really premature or it is mis-instrumented.
+                     * 
+                     * - If it is really premature, add caller info key to premature caller info collections.
+                     * - Else, Back-trace call path and instrument each method 
+                     *   by creating, registering and injecting call points until max caller depth.
+                     */
+                    backTraceAndInjectCallPoints(address, skipCallerCount);
                 }
-            }
-            if (classAtHeadOfCallPath == null) {
-                callerInfoKey = CallerInfo.EMPTY_CALLER_INFO_KEY;
-                CALLER_INFO_STORAGE.putCallerInfo(callerInfoKey, CallerInfo.EMPTY_CALLER_INFO);
-                LOGGER.warn("No available instrumentation point for caller info tracking. " +
-                            "Call path will be evaluated as empty call path.");
             } else {
-                CallerInfo callerInfo = null;
-                for (;;) {
-                    callerInfoKey = System.nanoTime();
-                    callerInfo = new CallerInfo(callerInfoKey, callerInfoEntries);
-                    if (CALLER_INFO_STORAGE.putCallerInfo(callerInfoKey, callerInfo) == null) {
-                        break;
-                    }
-                }
-                callerInfoKey = 
-                        CALLER_INFO_INJECTOR.injectCallerInfo(classAtHeadOfCallPath, 
-                                                              methodNameAtHeadOfCallPath, 
-                                                              lineNumberAtHeadOfCallPath, 
-                                                              callerInfoKey, 
-                                                              depthAtHeadOfCallPath);
-            }    
+                CALLER_INFO_STORAGE.connectAddressWithCallerInfo(address, callerInfoKey);
+            }
         }
-        CALLER_INFO_STORAGE.connectAddressWithCallerInfo(address, callerInfoKey);
     }
     
+    // "synchronized" is used for atomicity of whole operation, not for visibility
+    private synchronized static void backTraceAndInjectCallPoints(long address, int skipCallerCount) {
+        skipCallerCount++;
+        StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
+        skipCallerCount++;
+        int callPointCount = 0;
+        long callerInfoKey = 0L;
+        for (int i = 0; callPointCount < CallerInfo.MAX_CALLER_DEPTH 
+                 && i + skipCallerCount < stackTraceElements.length; i++) {
+            StackTraceElement stackTraceElement = stackTraceElements[i + skipCallerCount];
+            try {
+                String className = stackTraceElement.getClassName();
+                String methodName = stackTraceElement.getMethodName();
+                Class<?> clazz =  Class.forName(className);
+                // If this method will be instrumented,
+                //      - `MySafeDelegator` should be known by the caller classloader
+                //      - Caller method must not be native method
+                if (clazz.getClassLoader().loadClass(MySafeDelegator.class.getName()) != null
+                        && !stackTraceElement.isNativeMethod()) {
+                    boolean callPointCreated = false;
+                    short callPointId;
+                    String callPoint = className + "." + methodName;
+                    Short oldCallPointId = CALL_POINT_NAME_2_ID_MAP.get(callPoint);
+                    if (oldCallPointId == null) {
+                        callPointId = nextCallPointId();
+                        CALL_POINT_NAME_2_ID_MAP.put(callPoint, callPointId);
+                        CALL_POINT_ID_2_NAME_MAP.put(callPointId, callPoint);
+                        callPointCreated = true;
+                    } else {
+                        callPointId = oldCallPointId;
+                    }
+                    
+                    if (callPointCreated) {
+                        CALLER_INFO_INJECTOR.injectCallerPoint(clazz, methodName, callPointId);
+                    }
+                    
+                    callPointCount++;
+                    callerInfoKey = appendCallPointId(callerInfoKey, callPointId);
+                    
+                    LOGGER.debug("\t- " + className + "." + methodName);
+                }
+            } catch (ClassNotFoundException e) {
+                LOGGER.error(e);
+            }
+        }   
+        
+        if (callPointCount < CallerInfo.MAX_CALLER_DEPTH) {
+            LOGGER.debug("A new premature call path has been detected ...");
+            
+            PREMATURE_CALLER_INFOS.put(callerInfoKey, Boolean.TRUE);
+        }
+        
+        CALLER_INFO_STORAGE.connectAddressWithCallerInfo(address, callerInfoKey);
+    }
+
+    private static void generateCallPoints(long callerInfoKey, String[] callPoints) {
+        int length = callPoints.length;
+        for (int i = 0; i < length; i++) {
+            short callPointId = (short) (callerInfoKey & 0x0000FFFF);
+            assert callPointId >= 0;
+            String callPoint = null;
+            if (callPointId > 0) {
+                callPoint = CALL_POINT_ID_2_NAME_MAP.get(callPointId);
+            }    
+            if (callPoint != null) {
+                callPoints[length - i - 1] = callPoint;
+            } else {
+                callPoints[length - i - 1] = "Unknow call point!";
+            }
+            callerInfoKey = callerInfoKey >>> 16;        
+        }
+    }
+
     private static void deleteCallerInfoOnFree(long address) {
         CALLER_INFO_STORAGE.disconnectAddressFromCallerInfo(address);
     }
@@ -671,6 +744,7 @@ public final class MySafeDelegator {
     }
     
     public static void dumpAllocatedMemories(final PrintStream ps, final Unsafe unsafe) {
+        final String[] callPoints = new String[CallerInfo.MAX_CALLER_DEPTH];
         ALLOCATED_MEMORY_STORAGE.iterate(new AllocatedMemoryIterator() {
             @Override
             public void onAllocatedMemory(long address, long size) {
@@ -680,16 +754,13 @@ public final class MySafeDelegator {
                 dump(ps, unsafe, address, size);
                 if (CALLER_INFO_MONITORING_MODE_ENABLED) {
                     ps.println("Call Path   :");
-                    CallerInfo callerInfo = CALLER_INFO_STORAGE.findCallerInfoByConnectedAddress(address);
-                    if (callerInfo == null) {
+                    long callerInfoKey = CALLER_INFO_STORAGE.getCallerInfoKey(address);
+                    if (callerInfoKey <= 0) {
                         ps.println("\tNo related caller info!");
-                    } else if (callerInfo == CallerInfo.EMPTY_CALLER_INFO) {
-                        ps.println("\tUnknown caller info because of not applicable instrumentation!");
                     } else {
-                        for (CallerInfoEntry callerInfoEntry : callerInfo.callerInfoEntries) {
-                            ps.println("\t|- " + callerInfoEntry.className + "." + 
-                                       callerInfoEntry.methodName + ":" +
-                                       callerInfoEntry.lineNumber);
+                        generateCallPoints(callerInfoKey, callPoints);
+                        for (String callPoint : callPoints) {
+                            ps.println("\t|- " + callPoint);
                         }
                     }
                 }
@@ -723,26 +794,23 @@ public final class MySafeDelegator {
             ALLOCATED_MEMORY_STORAGE.iterate(new AllocatedMemoryIterator() {
                 @Override
                 public void onAllocatedMemory(long address, long size) {
-                    CallerInfo callerInfo = CALLER_INFO_STORAGE.findCallerInfoByConnectedAddress(address);
-                    addCallerInfoMemoryUsage(callerInfoMemoryUsageMap, callerInfo, size);
+                    long callerInfoKey = CALLER_INFO_STORAGE.getCallerInfoKey(address);
+                    addCallerInfoMemoryUsage(callerInfoMemoryUsageMap, callerInfoKey, size);
                 }
             });
+            String[] callPoints = new String[CallerInfo.MAX_CALLER_DEPTH];
             LongLongCursor cursor = callerInfoMemoryUsageMap.cursor();
             while (cursor.advance()) {
                 long callerInfoKey = cursor.key();
                 long allocatedMemory = cursor.value();
                 ps.println("Allocated memory : " + allocatedMemory + " bytes");
                 ps.println("Call Path        :");
-                if (callerInfoKey == CallerInfo.NON_EXISTING_CALLER_INFO_KEY) {
+                if (callerInfoKey <= 0) {
                     ps.println("\tNo related caller info!");
-                } else if (callerInfoKey == CallerInfo.EMPTY_CALLER_INFO_KEY) {
-                    ps.println("\tUnknown caller info because of not applicable instrumentation!");
                 } else {
-                    CallerInfo callerInfo = CALLER_INFO_STORAGE.getCallerInfo(callerInfoKey);
-                    for (CallerInfoEntry callerInfoEntry : callerInfo.callerInfoEntries) {
-                        ps.println("\t|- " + callerInfoEntry.className + "." + 
-                                   callerInfoEntry.methodName + ":" +
-                                   callerInfoEntry.lineNumber);
+                    generateCallPoints(callerInfoKey, callPoints);
+                    for (String callPoint : callPoints) {
+                        ps.println("\t|- " + callPoint);
                     }
                 } 
                 ps.println();
@@ -767,24 +835,19 @@ public final class MySafeDelegator {
             ALLOCATED_MEMORY_STORAGE.iterate(new AllocatedMemoryIterator() {
                 @Override
                 public void onAllocatedMemory(long address, long size) {
-                    CallerInfo callerInfo = CALLER_INFO_STORAGE.findCallerInfoByConnectedAddress(address);
-                    addCallerInfoMemoryUsage(callerInfoMemoryUsageMap, callerInfo, size);
+                    long callerInfoKey = CALLER_INFO_STORAGE.getCallerInfoKey(address);
+                    addCallerInfoMemoryUsage(callerInfoMemoryUsageMap, callerInfoKey, size);
                 }
             });
+            String[] callPoints = new String[CallerInfo.MAX_CALLER_DEPTH];
             LongLongCursor cursor = callerInfoMemoryUsageMap.cursor();
             List<CallerInfoAllocatedMemory> callerInfoAllocatedMemories = 
                     new ArrayList<CallerInfoAllocatedMemory>((int) callerInfoMemoryUsageMap.size());
             while (cursor.advance()) {
                 long callerInfoKey = cursor.key();
                 long allocatedMemory = cursor.value();
-                CallerInfo callerInfo;
-                if (callerInfoKey == CallerInfo.NON_EXISTING_CALLER_INFO_KEY) {
-                    callerInfo = CallerInfo.NON_EXISTING_CALLER_INFO;
-                } else if (callerInfoKey == CallerInfo.EMPTY_CALLER_INFO_KEY) {
-                    callerInfo = CallerInfo.EMPTY_CALLER_INFO;
-                } else {
-                    callerInfo = CALLER_INFO_STORAGE.getCallerInfo(callerInfoKey);
-                } 
+                generateCallPoints(callerInfoKey, callPoints);
+                CallerInfo callerInfo = new CallerInfo(callerInfoKey, callPoints);
                 callerInfoAllocatedMemories.add(new CallerInfoAllocatedMemory(callerInfo, allocatedMemory));
             }
             CallerPathDiagramGenerator.generateCallerPathDiagram(diagramName, callerInfoAllocatedMemories);
@@ -796,14 +859,8 @@ public final class MySafeDelegator {
     }
     
     private static void addCallerInfoMemoryUsage(Long2LongMap callerInfoMemoryUsageMap, 
-                                                 CallerInfo callerInfo, 
+                                                 long callerInfoKey, 
                                                  long size) {
-        long callerInfoKey;
-        if (callerInfo == null) {
-            callerInfoKey = CallerInfo.NON_EXISTING_CALLER_INFO_KEY;
-        } else {
-            callerInfoKey = callerInfo.key;
-        }
         long allocatedMemory = callerInfoMemoryUsageMap.get(callerInfoKey);
         allocatedMemory += size;
         callerInfoMemoryUsageMap.put(callerInfoKey, allocatedMemory);

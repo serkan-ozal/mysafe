@@ -15,8 +15,6 @@
  */
 package tr.com.serkanozal.mysafe.impl.callerinfo;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 
 import sun.misc.Unsafe;
@@ -24,7 +22,6 @@ import tr.com.serkanozal.mysafe.ThreadLocalMemoryUsageDecider;
 
 public class ThreadLocalAwareCallerInfoStorage implements CallerInfoStorage {
 
-    private final ConcurrentMap<Long, CallerInfo> callerInfoMap;
     private final CallerInfoStorage globalCallerInfoStorage;
     private final CallerInfoStorage threadLocalCallerInfoStorage;
     private final ThreadLocalMemoryUsageDecider threadLocalMemoryUsageDecider;
@@ -32,9 +29,8 @@ public class ThreadLocalAwareCallerInfoStorage implements CallerInfoStorage {
     public ThreadLocalAwareCallerInfoStorage(Unsafe unsafe, 
                                              ThreadLocalMemoryUsageDecider threadLocalMemoryUsageDecider,
                                              ScheduledExecutorService scheduler) {
-        this.callerInfoMap = new ConcurrentHashMap<Long, CallerInfo>();
-        this.globalCallerInfoStorage = new DefaultCallerInfoStorage(callerInfoMap);
-        this.threadLocalCallerInfoStorage = new ThreadLocalDefaultCallerInfoStorage(unsafe, callerInfoMap, scheduler);
+        this.globalCallerInfoStorage = new DefaultCallerInfoStorage();
+        this.threadLocalCallerInfoStorage = new ThreadLocalDefaultCallerInfoStorage(unsafe, scheduler);
         this.threadLocalMemoryUsageDecider = threadLocalMemoryUsageDecider;
     }
     
@@ -45,30 +41,10 @@ public class ThreadLocalAwareCallerInfoStorage implements CallerInfoStorage {
             return globalCallerInfoStorage;
         }
     }
-
+    
     @Override
-    public CallerInfo getCallerInfo(long callerInfoKey) {
-        return callerInfoMap.get(callerInfoKey);
-    }
-
-    @Override
-    public CallerInfo putCallerInfo(long callerInfoKey, CallerInfo callerInfo) {
-        return callerInfoMap.putIfAbsent(callerInfoKey, callerInfo);
-    }
-
-    @Override
-    public CallerInfo removeCallerInfo(long callerInfoKey) {
-        return callerInfoMap.remove(callerInfoKey);
-    }
-
-    @Override
-    public CallerInfo findCallerInfoByConnectedAddress(long address) {
-        CallerInfo callerInfo = threadLocalCallerInfoStorage.findCallerInfoByConnectedAddress(address);
-        if (callerInfo != null) {
-            return callerInfo;
-        } else {
-            return globalCallerInfoStorage.findCallerInfoByConnectedAddress(address);
-        }    
+    public long getCallerInfoKey(long address) {
+        return callerInfoStorage().getCallerInfoKey(address);
     }
 
     @Override

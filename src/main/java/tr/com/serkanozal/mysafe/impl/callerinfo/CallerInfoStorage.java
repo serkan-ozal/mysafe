@@ -16,15 +16,9 @@
 package tr.com.serkanozal.mysafe.impl.callerinfo;
 
 public interface CallerInfoStorage {
-    
-    CallerInfo getCallerInfo(long callerInfoKey);
 
-    CallerInfo putCallerInfo(long callerInfoKey, CallerInfo callerInfo);
+    long getCallerInfoKey(long address);
     
-    CallerInfo removeCallerInfo(long callerInfoKey);
-    
-    CallerInfo findCallerInfoByConnectedAddress(long address);
-
     void connectAddressWithCallerInfo(long address, long callerInfoKey);
     
     void disconnectAddressFromCallerInfo(long address);
