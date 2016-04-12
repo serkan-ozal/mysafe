@@ -104,9 +104,11 @@ Latest version of **MySafe** is `2.0-SNAPSHOT`.
 
 * **`mysafe.threadLocalMemoryUsageDeciderImpl`:** Specifies the `ThreadLocalMemoryUsageDecider` implementation to be used for deciding which threads use memory as thread-local and which ones use as global. This property is used when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled. By default all threads are assumed as they are using memory as thread-local when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled.
 
-* **`mysafe.enableCallerInfoMonitoringMode`:** Enables tracking caller informations on memory allocation (class name, method name and line number) with at most `4` depth by default. Caller informations are dumped while dumping all allocated memories through `MySafe::dumpAllocatedMemories` if it is enabled. Default value is `false`.
+* **`mysafe.enableCallerInfoMonitoringMode`:** Enables tracking caller informations on memory allocation (class name and method name) with at most `4` depth by default. Caller informations are dumped while dumping all allocated memories through `MySafe::dumpAllocatedMemories` if it is enabled. Default value is `false`. 
 
-* **`mysafe.maxCallerInfoDepth`:** Configures maximum depth of for caller information tracking. Default value is `4`.
+  Note that, in the result caller path, between two subsequent call points (methods), there might be other call points (methods) and **MySafe** __doesn't give any guarantee__ that these call points (methods) are directly connected with eachother.
+
+* **`mysafe.maxCallerInfoDepth`:** Configures maximum depth of for caller information tracking. Default value is `4` and it __cannot__ be more than `4`.
 
 * **`mysafe.enableMXBean`:** Enables JMX support. Default value is `false`.
 
@@ -297,6 +299,10 @@ Bug fixes and enhancements at each release:
 --------------
 * Some renaming on interfaces, classes and method names about **Unsafe** terms including API.
 * Ability to specify custom memory allocation, reallocation and free points (methods) instead of `Unsafe`'s `allocateMemory`, `freeMemory` and `reallocateMemory` methods.
-* Ability to monitor stacktraces of memory allocations by **class name**, **method name** (or **constructor**/**class initializer**) and **line number**.
+* Ability to monitor stacktraces of memory allocations by **class name** and **method name** (or **constructor**/**class initializer**).
 * Ability to storing allocated memory addresses and caller informations (if enabled) at off-heap instead of heap.
 * Ability to generate caller path diagrams.
+
+8. Roadmap
+==============
+* Ability to track also **line numbers** for stacktraces of memory allocations.
