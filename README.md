@@ -1,5 +1,5 @@
 # MySafe
-My Unsafe
+My Unsafe - Unsafe Interceptor, Native Memory Leak Tracker and Access Checker on the JVM
 
 1. What is MySafe?
 ==============
