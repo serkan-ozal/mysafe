@@ -11,7 +11,7 @@ My Unsafe - Unsafe Interceptor, Native Memory Leak Tracker and Access Checker on
 
 In your `pom.xml`, you must add repository and dependency for **MySafe**. 
 You can change `mysafe.version` to any existing **MySafe** library version.
-Latest version of **MySafe** is `2.0-SNAPSHOT`.
+Latest version of **MySafe** is `2.0`.
 
 ``` xml
 ...
