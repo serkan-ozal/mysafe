@@ -1,13 +1,11 @@
 # MySafe
 My Unsafe - Unsafe Interceptor, Native Memory Leak Tracker and Access Checker on the JVM
 
-1. What is MySafe?
-==============
+## 1. What is MySafe?
 
 **MySafe** is a framework (based on [Jillegal-Agent](https://github.com/serkan-ozal/jillegal-agent)) for managing memory accesses over `sun.misc.Unsafe`. **MySafe** intercepts (instruments) `sun.misc.Unsafe` calls and keeps records of allocated memories. So it can give the allocated memory informations and detect the invalid memory accesses.
 
-2. Installation
-==============
+## 2. Installation
 
 In your `pom.xml`, you must add repository and dependency for **MySafe**. 
 You can change `mysafe.version` to any existing **MySafe** library version.
@@ -42,8 +40,8 @@ Latest version of **MySafe** is `2.0`.
 ...
 ```
 
-3. Configurations
-==============
+## 3. Configurations
+
 * **`mysafe.enableSafeMemoryManagementMode`:** Enables checkes while freeing/reallocating memory. By this property enabled, every memory free/reallocation are checked about if the target memory is valid (already allocated) or not. Default value is `false`.
 
 * **`mysafe.enableSafeMemoryAccessMode`:** Enables memory access checkes over `sun.misc.Unsafe`. By this property enabled, every memory accesses over `sun.misc.Unsafe` are checked about if the target memory is valid (already allocated) or not. Default value is `false`.
@@ -118,38 +116,36 @@ Latest version of **MySafe** is `2.0`.
 
 * **`mysafe.useNativeMemoryForStorageWhenSupported`:** Enables usage of native memory (off-heap) backed storages when supported (only supported by thread-local storage at the moment).
 
-4. Usage
-==============
+## 4. Usage
 
 There are 3 ways of activating **MySafe**:
 
-4.1. Java Agent Based Usage by VM Argument 
---------------
+### 4.1. Java Agent Based Usage by VM Argument 
+
 **MySafe** can be activated through Java agent (**Jillegal-Agent**) by using `sun.misc.Unsafe` instrumenter of **MySafe** via `-javaagent:<path_to_jillegal_agent>\<jillegal_agent_jar>="-p tr.com.serkanozal.mysafe.impl.processor.MySafeProcessor"`.
 
 For example: `-javaagent:$M2_HOME\tr\com\serkanozal\jillegal-agent\2.0\jillegal-agent-2.0.jar="-p tr.com.serkanozal.mysafe.impl.processor.MySafeProcessor"`
 
-4.2. Java Agent Based Usage Programmatically
---------------
+### 4.2. Java Agent Based Usage Programmatically
+
 **MySafe** can be activated programmatically by `MySafe.youAreMine();`.
 
-4.3. ClassLoader Based Usage by VM Argument 
---------------
+### 4.3. ClassLoader Based Usage by VM Argument 
+
 **MySafe** can be activated also by defining its classloader as system classloader via  `-Djava.system.class.loader=tr.com.serkanozal.mysafe.impl.classloader.MySafeClassLoader`.
 
-5. API
-==============
+## 5. API
 
-5.1. AllocatedMemoryStorage 
---------------
+### 5.1. AllocatedMemoryStorage 
+
 `AllocatedMemoryStorage` interface is contract point to store allocated memories. It is specified via `mysafe.allocatedMemoryStorageImpl` system property.
 
-5.2. IllegalMemoryAccessListener 
---------------
+### 5.2. IllegalMemoryAccessListener 
+
 `IllegalMemoryAccessListener` interface is contract point to be notified when illegal memory access occurred. It is specified via `mysafe.illegalMemoryAccessListenerImpl` system property. 
 
-5.3. AllocatedMemoryIterator 
---------------
+### 5.3. AllocatedMemoryIterator 
+
 `AllocatedMemoryIterator` interface is contract point for iterating allocated memories.
 
 Here is its sample usage:
@@ -167,8 +163,8 @@ MySafe.iterateOnAllocatedMemories(new AllocatedMemoryIterator() {
 });
 ```
 
-5.4. MemoryListener 
---------------
+### 5.4. MemoryListener 
+
 `MemoryListener` interface is contract point to be notified for memory usage (allocation/free/reallocation).
 
 Here is its sample usage:
@@ -234,8 +230,8 @@ MySafe.registerMemoryListener(listener);
 MySafe.deregisterMemoryListener(listener);
 ```
 
-5.5. Dumping Allocated Native Memories 
---------------
+### 5.5. Dumping Allocated Native Memories 
+
 All allocated memories can be dumped via `MySafe.dumpAllocatedMemories()` or `MySafe.dumpAllocatedMemories(PrintStream)` methods.
 
 Here is its sample usage:
@@ -250,8 +246,8 @@ PrintStream myPrintStream = ...
 MySafe.dumpAllocatedMemories(myPrintStream);
 ```
 
-5.6. Dumping Caller Paths 
---------------
+### 5.6. Dumping Caller Paths 
+
 All unique caller paths with allocated memories through them can be dumped  via `MySafe.dumpCallerPaths()` or `MySafe.dumpCallerPaths(PrintStream)` methods if caller info monitoring is enabled by `mysafe.enableCallerInfoMonitoringMode` property.
 
 Here is its sample usage:
@@ -266,8 +262,8 @@ PrintStream myPrintStream = ...
 MySafe.dumpCallerPaths(myPrintStream);
 ```
 
-5.7. Generating Caller Path Diagram 
---------------
+### 5.7. Generating Caller Path Diagram 
+
 All unique caller paths with allocated memories through them can be dumped via `MySafe.generateCallerPathDiagrams()` method if caller info monitoring is enabled by `mysafe.enableCallerInfoMonitoringMode` property.
 
 Here is its sample usage:
@@ -276,8 +272,8 @@ Here is its sample usage:
 MySafe.generateCallerPathDiagrams();
 ```
 
-6. Demo
-==============
+## 6. Demo
+
 [Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/Demo.java) is its demo application.
 
 [Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/CustomMemoryManagementDemo.java) is its demo application for demonstrating custom memory management support.
@@ -287,22 +283,22 @@ MySafe.generateCallerPathDiagrams();
 Here is the generated caller path diagram for the `NativeMemoryLeakHuntingDemo` which shows the cause of native memory leak:
 ![native-memory-leak-hunting](https://github.com/serkan-ozal/mysafe/blob/master/src/test/resources/native-memory-leak-hunting.png) 
 
-7. Fixes & Enhancements
-==============
+## 7. Fixes & Enhancements
+
 Bug fixes and enhancements at each release:
 
-7.1. Version 1.1
---------------
+### 7.1. Version 1.1
+
 * Introduced `UnsafeMemoryAccessor` for memory access abstraction through `Unsafe`. Also introduced `AlignmentAwareUnsafeMemoryAccessor` to support unaligned memory accesses on platforms which don't support unaligned memory accesses such as **SPARC**.
 
-7.2. Version 2.0
---------------
+### 7.2. Version 2.0
+
 * Some renaming on interfaces, classes and method names about **Unsafe** terms including API.
 * Ability to specify custom memory allocation, reallocation and free points (methods) instead of `Unsafe`'s `allocateMemory`, `freeMemory` and `reallocateMemory` methods.
 * Ability to monitor stacktraces of memory allocations by **class name** and **method name** (or **constructor**/**class initializer**).
 * Ability to storing allocated memory addresses and caller informations (if enabled) at off-heap instead of heap.
 * Ability to generate caller path diagrams.
 
-8. Roadmap
-==============
+## 8. Roadmap
+
 * Ability to track also **line numbers** for stacktraces of memory allocations.
