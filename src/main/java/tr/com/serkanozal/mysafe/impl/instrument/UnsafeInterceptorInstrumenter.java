@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 2017, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -628,7 +628,7 @@ class UnsafeInterceptorInstrumenter implements MySafeInstrumenter {
                                 super.visitMethodInsn(
                                         Opcodes.INVOKESTATIC, 
                                         "tr/com/serkanozal/mysafe/impl/MySafeDelegator",
-                                        "compareAndSwapLong", 
+                                        "compareAndSwapObject",
                                         "(Lsun/misc/Unsafe;Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Z");   
                             } 
                             
