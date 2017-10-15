@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 2017, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,8 @@ package tr.com.serkanozal.mysafe;
 import sun.misc.Unsafe;
 
 /**
- * Demo application to show how to use <b>MySafe</b>. 
+ * <code>MemoryListenerDemo</code> application to show how to use <b>MySafe</b>
+ * for tracking memory allocation, reallocation and free operations.
  * 
  * <pre>
  * There are 3 ways of running this demo (also <b>MySafe</b>):
@@ -33,17 +34,12 @@ import sun.misc.Unsafe;
  * 
  * @author Serkan OZAL
  */
-public class Demo {
+public class MemoryListenerDemo {
 
-    static {
-        System.setProperty("mysafe.enableSafeMemoryManagementMode", "true");
-        System.setProperty("mysafe.enableSafeMemoryAccessMode", "true");
-    }
-    
     public static void main(String[] args) throws Exception {
         MySafe.youAreMine();
 
-        // Demo code is run on another class.
+        // MemoryListenerDemo code is run on another class.
         // Because, we want to be sure that demo code runner class is loaded 
         // after MySafe is initialized to instrument Unsafe calls.
         DemoRunner.run();
@@ -55,7 +51,7 @@ public class Demo {
             Unsafe unsafe = MySafe.getUnsafe(); // Or get unsafe yourself with reflection hack, it doesn't matter
 
             // Create listener to be notified for each allocate/free
-            MemoryListener listener = new MemoryListener() {
+            MemoryListener memoryListener = new MemoryListener() {
 
                 @Override
                 public void beforeAllocateMemory(long size) {
@@ -105,72 +101,18 @@ public class Demo {
             };
             
             // Register listener to be notified for each allocate/free/reallocate
-            MySafe.registerMemoryListener(listener);
-            
-            // Allocate a sample memory
+            MySafe.registerMemoryListener(memoryListener);
+
+            // Allocate memory
             long address = unsafe.allocateMemory(8);
-            
-            // Write to valid memory
-            unsafe.putInt(address, 100);
-            
-            // Read from valid memory
-            unsafe.getInt(address);
-            
-            try {
-                // Write to invalid memory
-                unsafe.putInt(address + 16, 100);
-            } catch (IllegalArgumentException e) {
-                e.printStackTrace();
-            }
-            
-            try {
-                // Read from invalid memory
-                unsafe.getInt(address + 16);
-            } catch (IllegalArgumentException e) {
-                e.printStackTrace();
-            }
-
-            // Free allocated memory
-            unsafe.freeMemory(address);
-
-            try {
-                // Free non-allocated memory
-                unsafe.freeMemory(1234);
-            } catch (IllegalArgumentException e) {
-                e.printStackTrace();
-            }
-
-            // Allocate a sample memory
-            long oldAddress = unsafe.allocateMemory(16);
 
             // Reallocate memory
-            long newAddress = unsafe.reallocateMemory(oldAddress, 32);
-    
-            // Free reallocated memory
-            unsafe.freeMemory(newAddress);
-            
-            // Allocate multiple memory
-            for (int i = 1; i <= 32; i++) {
-                unsafe.allocateMemory(i * 8);
-            }
+            address = unsafe.reallocateMemory(address, 16);
 
-            // Iterate on all allocated memories and print them
-            MySafe.iterateOnAllocatedMemories(new AllocatedMemoryIterator() {
-                
-                @Override
-                public void onAllocatedMemory(long address, long size) {
-                    System.out.println("onAllocatedMemory >>> " + 
-                                            "address=" + address + 
-                                            ", size=" + size);
-                }
-                
-            });
-            
+            unsafe.freeMemory(address);
+
             // Deregister registered listener
-            MySafe.deregisterMemoryListener(listener);
-            
-            // Dump all allocated memories to console
-            MySafe.dumpAllocatedMemories();
+            MySafe.deregisterMemoryListener(memoryListener);
         }
         
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 2017, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -171,6 +171,25 @@ public final class MySafe {
     }
 
     /**
+     * Gets the used {@link IllegalMemoryAccessListener} instance.
+     *
+     * @return the used {@link IllegalMemoryAccessListener} instance or
+     *         <code>null</code> if not available
+     */
+    public static IllegalMemoryAccessListener getIllegalMemoryAccessListener() {
+        return MySafeDelegator.getIllegalMemoryAccessListener();
+    }
+
+    /**
+     * Sets the given {@link IllegalMemoryAccessListener} instance.
+     *
+     * @param illegalMemoryAccessListener the {@link IllegalMemoryAccessListener} instance to be set
+     */
+    public static void setIllegalMemoryAccessListener(IllegalMemoryAccessListener illegalMemoryAccessListener) {
+        MySafeDelegator.setIllegalMemoryAccessListener(illegalMemoryAccessListener);
+    }
+
+    /**
      * Iterates on all allocated memories.
      * 
      * @param iterator the {@link AllocatedMemoryIterator} instance to be notified 
@@ -197,37 +216,37 @@ public final class MySafe {
     }
     
     /**
-     * Dumps the caller paths, with allocated memory informations through them, 
+     * Dumps the allocation paths, with allocated memory informations through them,
      * to console (standard output).
      */
-    public static void dumpCallerPaths() {
-        dumpCallerPaths(System.out);
+    public static void dumpAllocationPaths() {
+        dumpAllocationPaths(System.out);
     }
     
     /**
-     * Dumps the caller paths, with allocated memory informations through them, 
+     * Dumps the allocation paths, with allocated memory informations through them,
      * to given {@link PrintStream}.
      * 
-     * @param ps the {@link PrintStream} instance to dump caller paths
+     * @param ps the {@link PrintStream} instance to dump allocation paths
      */
-    public static void dumpCallerPaths(PrintStream ps) {
-        MySafeDelegator.dumpCallerPaths(ps);
+    public static void dumpAllocationPaths(PrintStream ps) {
+        MySafeDelegator.dumpAllocationPaths(ps);
     }
     
     /**
-     * Generates caller path diagram into default (<tt>mysafe-caller-path</tt>) file.
+     * Generates allocation path diagram into default (<code>mysafe-allocation-path.png</code>) file.
      */
-    public static void generateCallerPathDiagrams() {
-        MySafeDelegator.generateCallerPathDiagrams();
+    public static void generateAllocationPathDiagrams() {
+        MySafeDelegator.generateAllocationPathDiagrams();
     }
     
     /**
-     * Generates caller path diagram into given file.
+     * Generates allocation path diagram into given file.
      * 
      * @param diagramName name of the file where diagram will be generated into
      */
-    public static void generateCallerPathDiagrams(String diagramName) {
-        MySafeDelegator.generateCallerPathDiagrams(diagramName);
+    public static void generateAllocationPathDiagrams(String diagramName) {
+        MySafeDelegator.generateAllocationPathDiagrams(diagramName);
     }
     
 }

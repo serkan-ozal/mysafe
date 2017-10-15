@@ -9,13 +9,13 @@ My Unsafe - Unsafe Interceptor, Native Memory Leak Tracker and Access Checker on
 
 In your `pom.xml`, you must add repository and dependency for **MySafe**. 
 You can change `mysafe.version` to any existing **MySafe** library version.
-Latest version of **MySafe** is `2.0`.
+Latest version of **MySafe** is `2.1`.
 
 ``` xml
 ...
 <properties>
     ...
-    <mysafe.version>2.0-SNAPSHOT</mysafe.version>
+    <mysafe.version>2.1</mysafe.version>
     ...
 </properties>
 ...
@@ -96,21 +96,23 @@ Latest version of **MySafe** is `2.0`.
 
 * **`mysafe.customMemoryManagementPackagePrefix`:** Specifies a subset of classes/packages for checking loaded classes whether they might have custom memory management point. By this configuration, unnecessary check on every loaded classes is prevented for possible custom memory management points.
 
-* **`mysafe.threadLocalMemoryUsagePatternExist`:** Enables thread-local based storages for allocated memories and caller informations. Since storages are thread-local, they are lock free and no need to any synchronization. By these advantages, they perform better than lock guarded and synchonized global storages. If memory usages are thread-local in your application, it is highly recommended to enable this property. Thread-local memory usage means that once a memory is allocated in a thread, it is only accessed and free within that thread.
+* **`mysafe.threadLocalMemoryUsagePatternExist`:** Enables thread-local based storages for allocated memories and allocation paths. Since storages are thread-local, they are lock free and no need to any synchronization. By these advantages, they perform better than lock guarded and synchonized global storages. If memory usages are thread-local in your application, it is highly recommended to enable this property. Thread-local memory usage means that once a memory is allocated in a thread, it is only accessed and free within that thread.
 
 * **`mysafe.ignoreByMySafe`:** Specifies classes/packages to be ignored by **MySafe** for instrumentation. There can be multiple configurations seperated by comma (`,`). Also via `@IgnoreByMySafe` annotation, classes can be marked to be ignored by **MySafe**.
 
 * **`mysafe.threadLocalMemoryUsageDeciderImpl`:** Specifies the `ThreadLocalMemoryUsageDecider` implementation to be used for deciding which threads use memory as thread-local and which ones use as global. This property is used when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled. By default all threads are assumed as they are using memory as thread-local when `mysafe.threadLocalMemoryUsagePatternExist` property is enabled.
 
-* **`mysafe.enableCallerInfoMonitoringMode`:** Enables tracking caller informations on memory allocation (class name and method name) with at most `4` depth by default. Caller informations are dumped while dumping all allocated memories through `MySafe::dumpAllocatedMemories` if it is enabled. Default value is `false`. 
+* **`mysafe.enableAllocationPathMonitoringMode`:** Enables tracking allocation paths on memory allocation (class name and method name) with at most `4` depth by default. Allocation paths are dumped while dumping all allocated memories through `MySafe::dumpAllocatedMemories` if it is enabled. Default value is `false`. 
 
-  Note that, in the result caller path, between two subsequent call points (methods), there might be other call points (methods) and **MySafe** __doesn't give any guarantee__ that these call points (methods) are directly connected with eachother.
+  Note that, in the result allocation path, between two subsequent call points (methods), there might be other call points (methods) and **MySafe** __doesn't give any guarantee__ that these call points (methods) are directly connected with eachother.
 
-* **`mysafe.maxCallerInfoDepth`:** Configures maximum depth of for caller information tracking. Default value is `4` and it __cannot__ be more than `4`.
+* **`mysafe.maxAllocationPathDepth`:** Configures maximum depth of for allocation path tracking. Default value is `4` and it __cannot__ be more than `4`.
 
 * **`mysafe.enableMXBean`:** Enables JMX support. Default value is `false`.
 
-* **`mysafe.allocatedMemoryStorageImpl`:** Specifies the custom `AllocatedMemoryStorage` implementation which stored the allocated memories. If it is not set, the default (built-in) `AllocatedMemoryStorage` implementation is used.
+* **`mysafe.allocatedMemoryStorageImpl`:** Specifies the custom `AllocatedMemoryStorage` implementation which stores the allocated memories. If it is not set, the default (built-in) `AllocatedMemoryStorage` implementation is used.
+
+* **`mysafe.allocationPathManagerImpl`** Specifies the custom `AllocationPathManager` implementation which manages allocation path & address mappings/un-mappings and allocation path provide related operations. If it is not set, the default (built-in) `AllocationPathManager` implementation (`InstrumentationBasedAllocationPathManager`) is used.
 
 * **`mysafe.illegalMemoryAccessListenerImpl`:** Specifies the `IllegalMemoryAccessListener` implementation to be notified when illegal memory access occurred.
 
@@ -246,41 +248,50 @@ PrintStream myPrintStream = ...
 MySafe.dumpAllocatedMemories(myPrintStream);
 ```
 
-### 5.6. Dumping Caller Paths 
+### 5.6. AllocationPathManager 
 
-All unique caller paths with allocated memories through them can be dumped  via `MySafe.dumpCallerPaths()` or `MySafe.dumpCallerPaths(PrintStream)` methods if caller info monitoring is enabled by `mysafe.enableCallerInfoMonitoringMode` property.
+`AllocationPathManager` interface is contract point to manage allocation path & address mappings/un-mappings and allocation path provide related operations. It is specified via `mysafe.allocationPathManagerImpl` system property.
+
+
+### 5.7. Dumping Allocation Paths 
+
+All unique allocation paths with allocated memories through them can be dumped  via `MySafe.dumpAllocationPaths()` or `MySafe.dumpAllocationPaths(PrintStream)` methods if allocation path monitoring is enabled by `mysafe.enableAllocationPathMonitoringMode` property.
 
 Here is its sample usage:
 ``` java
-// Dump all caller paths with allocated memories through them to console
-MySafe.dumpCallerPaths();
+// Dump all allocation paths with allocated memories through them to console
+MySafe.dumpAllocationPaths();
 
 ...
 
 PrintStream myPrintStream = ...
-// Dump all caller paths with allocated memories through them to `myPrintStream`
-MySafe.dumpCallerPaths(myPrintStream);
+// Dump all allocation paths with allocated memories through them to `myPrintStream`
+MySafe.dumpAllocationPaths(myPrintStream);
 ```
 
-### 5.7. Generating Caller Path Diagram 
+### 5.8. Generating Allocation Path Diagram 
 
-All unique caller paths with allocated memories through them can be dumped via `MySafe.generateCallerPathDiagrams()` method if caller info monitoring is enabled by `mysafe.enableCallerInfoMonitoringMode` property.
+All unique allocation paths with allocated memories through them can be dumped via `MySafe.generateAllocationPathDiagrams()` method if allocation path monitoring is enabled by `mysafe.enableAllocationPathMonitoringMode` property.
 
 Here is its sample usage:
 ``` java
-// Generate caller path diagram
-MySafe.generateCallerPathDiagrams();
+// Generate allocation path diagram
+MySafe.generateAllocationPathDiagrams();
 ```
 
 ## 6. Demo
 
-[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/Demo.java) is its demo application.
+[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/MemoryExplorerDemo.java) is demo application for demonstrating how to iterate on allocated memories and dump them.
 
-[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/CustomMemoryManagementDemo.java) is its demo application for demonstrating custom memory management support.
+[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/MemoryListenerDemo.java) is demo application for demonstrating how to track memory allocation, reallocation and free operations.
 
-[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/NativeMemoryLeakHuntingDemo.java) is its demo application for demonstrating hunting native memory leaks via **MySafe**.
+[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/IllegalMemoryAccessListenerDemo.java) is demo application for demonstrating how to be notified on illegal memory accesses.
 
-Here is the generated caller path diagram for the `NativeMemoryLeakHuntingDemo` which shows the cause of native memory leak:
+[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/CustomMemoryManagementDemo.java) is demo application for demonstrating how to integrate **MySafe** with custom memory managers.
+
+[Here](https://github.com/serkan-ozal/mysafe/blob/master/src/test/java/tr/com/serkanozal/mysafe/NativeMemoryLeakHuntingDemo.java) is demo application for demonstrating how to hunt native memory leaks via **MySafe**.
+
+Here is the generated allocation path diagram for the `NativeMemoryLeakHuntingDemo` which shows the cause of native memory leak:
 ![native-memory-leak-hunting](https://github.com/serkan-ozal/mysafe/blob/master/src/test/resources/native-memory-leak-hunting.png) 
 
 ## 7. Fixes & Enhancements
@@ -296,9 +307,20 @@ Bug fixes and enhancements at each release:
 * Some renaming on interfaces, classes and method names about **Unsafe** terms including API.
 * Ability to specify custom memory allocation, reallocation and free points (methods) instead of `Unsafe`'s `allocateMemory`, `freeMemory` and `reallocateMemory` methods.
 * Ability to monitor stacktraces of memory allocations by **class name** and **method name** (or **constructor**/**class initializer**).
-* Ability to storing allocated memory addresses and caller informations (if enabled) at off-heap instead of heap.
-* Ability to generate caller path diagrams.
+* Ability to storing allocated memory addresses and allocation path informations (if enabled) at off-heap instead of heap.
+* Ability to generate allocation path diagrams.
+
+### 7.3. Version 2.1
+
+* Fixed [NoSuchMethodError: MySafeDelegator.compareAndSwapLong](https://github.com/serkan-ozal/mysafe/issues/2) issue.
+* Introduced `AllocationPathManager` API.
 
 ## 8. Roadmap
 
 * Ability to track also **line numbers** for stacktraces of memory allocations.
+* More detailed and accurate allocation path detection.
+* Ability to inspect directly `sun.misc.Unsafe` instead of application classes which uses `sun.misc.Unsafe`.
+* Java 9 support.
+* Allocation path detection via Java 9’s **StackWalker** API.
+* Flame graph support.
+

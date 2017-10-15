@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 2017, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,33 +13,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package tr.com.serkanozal.mysafe.impl.callerinfo;
+package tr.com.serkanozal.mysafe.impl.allocpath.storage;
 
 import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 
-public class DefaultCallerInfoStorage implements CallerInfoStorage {
+public class DefaultAllocationPathStorage implements AllocationPathStorage {
 
-    private final NonBlockingHashMapLong<Long> allocationCallerInfoMap =
+    private final NonBlockingHashMapLong<Long> allocationPathMap =
             new NonBlockingHashMapLong<Long>(1024, false);
 
     @Override
-    public long getCallerInfoKey(long address) {
-        return allocationCallerInfoMap.get(address);
+    public long getAllocationPathKey(long address) {
+        return allocationPathMap.get(address);
     }
     
     @Override
-    public void connectAddressWithCallerInfo(long address, long callerInfoKey) {
-        allocationCallerInfoMap.put(address, (Long) callerInfoKey);
+    public void connectAddressWithAllocationPath(long address, long allocationPathKey) {
+        allocationPathMap.put(address, (Long) allocationPathKey);
     }
 
     @Override
-    public void disconnectAddressFromCallerInfo(long address) {
-        allocationCallerInfoMap.remove(address);
+    public void disconnectAddressFromAllocationPath(long address) {
+        allocationPathMap.remove(address);
     }
 
     @Override
     public boolean isEmpty() {
-        return allocationCallerInfoMap.isEmpty();
+        return allocationPathMap.isEmpty();
     }
 
 }

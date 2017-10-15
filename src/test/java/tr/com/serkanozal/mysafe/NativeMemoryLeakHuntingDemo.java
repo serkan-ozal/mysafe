@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 2017, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,13 @@
  */
 package tr.com.serkanozal.mysafe;
 
-import java.util.Random;
-
 import sun.misc.Unsafe;
 
+import java.util.Random;
+
 /**
- * Demo application to show how to use <b>MySafe</b> for hunting native memory leaks. 
+ * <code>NativeMemoryLeakHuntingDemo</code> application to show how to use <b>MySafe</b>
+ * for hunting native memory leaks.
  * 
  * <pre>
  * There are 3 ways of running this demo (also <b>MySafe</b>):
@@ -39,7 +40,7 @@ public class NativeMemoryLeakHuntingDemo {
 
     static {
         System.setProperty("mysafe.enableSafeMemoryManagementMode", "true");
-        System.setProperty("mysafe.enableCallerInfoMonitoringMode", "true");
+        System.setProperty("mysafe.enableAllocationPathMonitoringMode", "true");
         System.setProperty("mysafe.threadLocalMemoryUsagePatternExist", "true");
     }
     
@@ -52,7 +53,7 @@ public class NativeMemoryLeakHuntingDemo {
 
         MySafe.youAreMine();
 
-        // Demo code is run on another class.
+        // IllegalMemoryAccessListenerDemo code is run on another class.
         // Because, we want to be sure that demo code runner class is loaded 
         // after MySafe is initialized to instrument Unsafe calls.
         DemoRunner.run();
@@ -212,11 +213,11 @@ public class NativeMemoryLeakHuntingDemo {
             // Free index table
             freeIndexTable(indexTableAddress);
 
-            // Dump all caller paths with allocated memories through them to console
-            MySafe.dumpCallerPaths();
+            // Dump all allocation paths with allocated memories through them to console
+            MySafe.dumpAllocationPaths();
             
-            // Generate caller path diagram
-            MySafe.generateCallerPathDiagrams("native-memory-leak-hunting");
+            // Generate allocation path diagram
+            MySafe.generateAllocationPathDiagrams("native-memory-leak-hunting");
         }
 
     }

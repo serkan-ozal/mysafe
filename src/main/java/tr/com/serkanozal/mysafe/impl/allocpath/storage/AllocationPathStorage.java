@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 2017, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,15 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package tr.com.serkanozal.mysafe.impl.callerinfo;
+package tr.com.serkanozal.mysafe.impl.allocpath.storage;
 
-public interface CallerInfoStorage {
+public interface AllocationPathStorage {
 
-    long getCallerInfoKey(long address);
+    long getAllocationPathKey(long address);
     
-    void connectAddressWithCallerInfo(long address, long callerInfoKey);
+    void connectAddressWithAllocationPath(long address, long allocationPathKey);
     
-    void disconnectAddressFromCallerInfo(long address);
+    void disconnectAddressFromAllocationPath(long address);
     
     boolean isEmpty();
     

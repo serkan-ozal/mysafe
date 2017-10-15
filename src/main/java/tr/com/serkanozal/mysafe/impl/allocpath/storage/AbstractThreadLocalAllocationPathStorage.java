@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 2017, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package tr.com.serkanozal.mysafe.impl.callerinfo;
+package tr.com.serkanozal.mysafe.impl.allocpath.storage;
 
 import java.lang.ref.SoftReference;
 import java.util.Iterator;
@@ -25,56 +25,56 @@ import java.util.concurrent.TimeUnit;
 
 import sun.misc.Unsafe;
 
-abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage {
+abstract class AbstractThreadLocalAllocationPathStorage implements AllocationPathStorage {
 
     protected final Unsafe unsafe;
-    private final ConcurrentMap<SoftReference<Thread>, CallerInfoStorage> allCallerInfoStorages =
-            new ConcurrentHashMap<SoftReference<Thread>, CallerInfoStorage>();
-    private final ThreadLocal<CallerInfoStorage> threadLocalCallerInfoStorages;
+    private final ConcurrentMap<SoftReference<Thread>, AllocationPathStorage> allAllocationPathStorages =
+            new ConcurrentHashMap<SoftReference<Thread>, AllocationPathStorage>();
+    private final ThreadLocal<AllocationPathStorage> threadLocalAllocationPathStorages;
 
-    public AbstractThreadLocalCallerInfoStorage(final Unsafe unsafe, 
-                                                ScheduledExecutorService scheduler) {
+    public AbstractThreadLocalAllocationPathStorage(final Unsafe unsafe,
+                                                    ScheduledExecutorService scheduler) {
         this.unsafe = unsafe;
-        this.threadLocalCallerInfoStorages = new ThreadLocal<CallerInfoStorage>() {
+        this.threadLocalAllocationPathStorages = new ThreadLocal<AllocationPathStorage>() {
             @Override
-            protected CallerInfoStorage initialValue() {
-                CallerInfoStorage callerInfoStorage = createInternalThreadLocalCallerInfoStorage(unsafe);
+            protected AllocationPathStorage initialValue() {
+                AllocationPathStorage allocationPathStorage = createInternalThreadLocalAllocationPathStorage(unsafe);
                 SoftReference<Thread> threadRef = new SoftReference<Thread>(Thread.currentThread());
-                allCallerInfoStorages.put(threadRef, callerInfoStorage);
-                return callerInfoStorage;
+                allAllocationPathStorages.put(threadRef, allocationPathStorage);
+                return allocationPathStorage;
             };
         };
-        scheduler.scheduleAtFixedRate(new IdleThreadLocalCallerInfoStorageCleaner(), 5, 5, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(new IdleThreadLocalAllocationPathStorageCleaner(), 5, 5, TimeUnit.SECONDS);
     }
     
-    abstract protected CallerInfoStorage createInternalThreadLocalCallerInfoStorage(Unsafe unsafe);
+    abstract protected AllocationPathStorage createInternalThreadLocalAllocationPathStorage(Unsafe unsafe);
 
     @Override
-    public long getCallerInfoKey(long address) {
-        return threadLocalCallerInfoStorages.get().getCallerInfoKey(address);
+    public long getAllocationPathKey(long address) {
+        return threadLocalAllocationPathStorages.get().getAllocationPathKey(address);
     }
     
     @Override
-    public void connectAddressWithCallerInfo(long address, long callerInfoKey) {
-        threadLocalCallerInfoStorages.get().connectAddressWithCallerInfo(address, callerInfoKey);
+    public void connectAddressWithAllocationPath(long address, long allocationPathKey) {
+        threadLocalAllocationPathStorages.get().connectAddressWithAllocationPath(address, allocationPathKey);
     }
 
     @Override
-    public void disconnectAddressFromCallerInfo(long address) {
-        threadLocalCallerInfoStorages.get().disconnectAddressFromCallerInfo(address);
+    public void disconnectAddressFromAllocationPath(long address) {
+        threadLocalAllocationPathStorages.get().disconnectAddressFromAllocationPath(address);
     }
     
     @Override
     public boolean isEmpty() {
-        Iterator<Map.Entry<SoftReference<Thread>, CallerInfoStorage>> iter = 
-                allCallerInfoStorages.entrySet().iterator();
+        Iterator<Map.Entry<SoftReference<Thread>, AllocationPathStorage>> iter =
+                allAllocationPathStorages.entrySet().iterator();
         while (iter.hasNext()) {
-            Map.Entry<SoftReference<Thread>, CallerInfoStorage> entry = iter.next();
+            Map.Entry<SoftReference<Thread>, AllocationPathStorage> entry = iter.next();
             if (isIdle(entry)) {
                 iter.remove();
             } else {
-                CallerInfoStorage callerInfoStorage = entry.getValue();
-                if (!callerInfoStorage.isEmpty()) {
+                AllocationPathStorage allocationPathStorage = entry.getValue();
+                if (!allocationPathStorage.isEmpty()) {
                     return false;
                 }
             }
@@ -82,7 +82,7 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
         return true;
     }
 
-    private boolean isIdle(Map.Entry<SoftReference<Thread>, CallerInfoStorage> entry) {
+    private boolean isIdle(Map.Entry<SoftReference<Thread>, AllocationPathStorage> entry) {
         SoftReference<Thread> threadRef = entry.getKey();
         Thread thread = threadRef.get();
         if (thread == null || !thread.isAlive()) {
@@ -91,14 +91,14 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
         return false;
     }
 
-    private class IdleThreadLocalCallerInfoStorageCleaner implements Runnable {
+    private class IdleThreadLocalAllocationPathStorageCleaner implements Runnable {
 
         @Override
         public void run() {
-            Iterator<Map.Entry<SoftReference<Thread>, CallerInfoStorage>> iter = 
-                    allCallerInfoStorages.entrySet().iterator();
+            Iterator<Map.Entry<SoftReference<Thread>, AllocationPathStorage>> iter =
+                    allAllocationPathStorages.entrySet().iterator();
             while (iter.hasNext()) {
-                Map.Entry<SoftReference<Thread>, CallerInfoStorage> entry = iter.next();
+                Map.Entry<SoftReference<Thread>, AllocationPathStorage> entry = iter.next();
                 if (isIdle(entry)) {
                     iter.remove();
                 }
@@ -107,7 +107,7 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
         
     }
     
-    protected abstract class AbstractInternalThreadLocalCallerInfoStorage implements CallerInfoStorage {
+    protected abstract class AbstractInternalThreadLocalAllocationPathStorage implements AllocationPathStorage {
 
         private static final int AVAILABLE = 0x00;
         private static final int IN_PROGRESS = 0x01;
@@ -132,12 +132,12 @@ abstract class AbstractThreadLocalCallerInfoStorage implements CallerInfoStorage
         @SuppressWarnings("unused")
         private volatile int state = AVAILABLE;
         
-        protected AbstractInternalThreadLocalCallerInfoStorage(Unsafe unsafe) {
+        protected AbstractInternalThreadLocalAllocationPathStorage(Unsafe unsafe) {
             UNSAFE = unsafe;
             try {
                 stateFieldOffset = 
                         UNSAFE.objectFieldOffset(
-                                AbstractInternalThreadLocalCallerInfoStorage.class.getDeclaredField("state"));
+                                AbstractInternalThreadLocalAllocationPathStorage.class.getDeclaredField("state"));
             } catch (Throwable t) {
                 throw new IllegalStateException(t);
             }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1986-2016, Serkan OZAL, All Rights Reserved.
+ * Copyright (c) 2017, Serkan OZAL, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package tr.com.serkanozal.mysafe.impl.callerinfo;
+package tr.com.serkanozal.mysafe.impl.allocpath.storage;
 
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -22,51 +22,51 @@ import tr.com.serkanozal.mysafe.impl.util.HeapMemoryBackedLong2LongHashMap;
 import tr.com.serkanozal.mysafe.impl.util.Long2LongMap;
 import tr.com.serkanozal.mysafe.impl.util.NativeMemoryBackedLong2LongHashMap;
 
-public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCallerInfoStorage {
+public class ThreadLocalDefaultAllocationPathStorage extends AbstractThreadLocalAllocationPathStorage {
 
     private static final boolean USE_NATIVE_MEMORY = Boolean.getBoolean("mysafe.useNativeMemoryForStorageWhenSupported");
     
-    public ThreadLocalDefaultCallerInfoStorage(Unsafe unsafe, ScheduledExecutorService scheduler) {
+    public ThreadLocalDefaultAllocationPathStorage(Unsafe unsafe, ScheduledExecutorService scheduler) {
         super(unsafe, scheduler);
     }
 
     @Override
-    protected CallerInfoStorage createInternalThreadLocalCallerInfoStorage(Unsafe unsafe) {
-        return new InternalThreadLocalDefaultCallerInfoStorage(unsafe);
+    protected AllocationPathStorage createInternalThreadLocalAllocationPathStorage(Unsafe unsafe) {
+        return new InternalThreadLocalDefaultAllocationPathStorage(unsafe);
     }
     
-    private class InternalThreadLocalDefaultCallerInfoStorage 
-            extends AbstractInternalThreadLocalCallerInfoStorage {
+    private class InternalThreadLocalDefaultAllocationPathStorage
+            extends AbstractInternalThreadLocalAllocationPathStorage {
 
-        private final Long2LongMap allocationCallerInfoMap = 
+        private final Long2LongMap allocationPathMap =
                 USE_NATIVE_MEMORY 
                     ? new NativeMemoryBackedLong2LongHashMap(unsafe, -1)
                     : new HeapMemoryBackedLong2LongHashMap(-1);
  
-        private InternalThreadLocalDefaultCallerInfoStorage(Unsafe unsafe) {
+        private InternalThreadLocalDefaultAllocationPathStorage(Unsafe unsafe) {
             super(unsafe);
         }
         
         @Override
-        public long getCallerInfoKey(long address) {
-            return allocationCallerInfoMap.get(address);
+        public long getAllocationPathKey(long address) {
+            return allocationPathMap.get(address);
         }
 
         @Override
-        public void connectAddressWithCallerInfo(long address, long callerInfoKey) {
+        public void connectAddressWithAllocationPath(long address, long allocationPathKey) {
             acquire();
             try {
-                allocationCallerInfoMap.put(address, callerInfoKey);
+                allocationPathMap.put(address, allocationPathKey);
             } finally {
                 free();
             }
         }
 
         @Override
-        public void disconnectAddressFromCallerInfo(long address) {
+        public void disconnectAddressFromAllocationPath(long address) {
             acquire();
             try {
-                allocationCallerInfoMap.remove(address);
+                allocationPathMap.remove(address);
             } finally {
                 free();
             }
@@ -76,7 +76,7 @@ public class ThreadLocalDefaultCallerInfoStorage extends AbstractThreadLocalCall
         public boolean isEmpty() {
             acquire();
             try {
-                return allocationCallerInfoMap.isEmpty();
+                return allocationPathMap.isEmpty();
             } finally {
                 free();
             }
